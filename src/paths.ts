@@ -141,3 +141,42 @@ export function projectsDirsReport(
 export function projectsDirs(setting: string | undefined, e: PathsEnv = defaultPathsEnv(), log?: (msg: string) => void): string[] {
   return projectsDirsReport(setting, e, log).dirs
 }
+
+/** Where preview thumbnails live: `<cache dir>/thumbs`. */
+export function thumbsDir(e: PathsEnv = defaultPathsEnv()): string {
+  return flavor(e).join(flavor(e).dirname(cacheFilePath(e)), 'thumbs')
+}
+
+/** Headless browser used to capture visuals: the configured one, else Edge/Chrome/Chromium in well-known places. */
+export function findBrowser(
+  setting: string | undefined,
+  e: PathsEnv = defaultPathsEnv()
+): { path: string | null; reason?: string } {
+  const given = (setting ?? '').trim()
+  if (given) {
+    if (/\.(cmd|bat)$/i.test(given)) return { path: null, reason: 'The browser path must point to the executable, not a .cmd shim' }
+    if (!e.exists(given)) return { path: null, reason: `Configured browser path does not exist: ${given}` }
+    return { path: given }
+  }
+  const p = flavor(e)
+  let candidates: string[] = []
+  if (e.platform === 'win32') {
+    candidates = [
+      'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+      'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+      'C:/Program Files/Google/Chrome/Application/chrome.exe',
+      'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+      p.join(e.home, 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe')
+    ]
+  } else if (e.platform === 'darwin') {
+    candidates = [
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium'
+    ]
+  } else {
+    candidates = ['/usr/bin/microsoft-edge', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser']
+  }
+  const found = candidates.find((c) => e.exists(c))
+  return found ? { path: found } : { path: null, reason: 'No Edge or Chrome found; set "Browser path" in the plugin settings' }
+}

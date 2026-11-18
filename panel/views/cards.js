@@ -1,11 +1,6 @@
-/* Cards view: pinned rail + responsive grid of cards with generated or live covers. */
+/* Cards view: pinned rail + responsive grid of cards with generated covers and preview thumbnails. */
 (function () {
   'use strict'
-
-  // Set to false to skip the <iframe> miniature and always use the generated cover.
-  var LIVE_VISUAL_PREVIEW = true
-  var FRAME_W = 1024
-  var FRAME_H = 640
 
   var root = typeof window !== 'undefined' ? window : globalThis
   var AV = (root.AV = root.AV || {})
@@ -67,17 +62,13 @@
   }
 
   function describeCover(item) {
-    var generated = {
+    return {
       type: 'generated',
       seed: coverSeed(item.key),
       icon: item.kind === 'visual' ? 'visual' : 'artifact',
       host: host(item),
       tag: typeTag(item)
     }
-    if (LIVE_VISUAL_PREVIEW && item.kind === 'visual' && item.url) {
-      return { type: 'live', src: item.url, width: FRAME_W, height: FRAME_H, fallback: generated }
-    }
-    return generated
   }
 
   function describeCard(item, vm, pinned) {
@@ -93,6 +84,8 @@
       pinned: pinned,
       selected: vm.selectedKey === item.key,
       cover: describeCover(item),
+      thumbUrl: (vm.thumbUrl && vm.thumbUrl(item.key)) || null,
+      thumbReason: (vm.thumbReason && vm.thumbReason(item.key)) || null,
       meta: {
         worktree: wt,
         time: m.relTime(item.updatedAt, vm.now),
@@ -148,48 +141,31 @@
     return d
   }
 
-  function liveCover(c) {
-    var wrap = el('div', 'av-cards-live')
-    wrap.appendChild(generatedCover(c.fallback))
-    try {
-      var f = document.createElement('iframe')
-      f.className = 'av-cards-frame'
-      f.setAttribute('sandbox', '')
-      f.setAttribute('loading', 'lazy')
-      f.setAttribute('tabindex', '-1')
-      f.setAttribute('aria-hidden', 'true')
-      f.style.width = c.width + 'px'
-      f.style.height = c.height + 'px'
-      f.addEventListener('load', function () {
-        wrap.classList.add('is-live')
-      })
-      f.addEventListener('error', function () {
-        wrap.classList.remove('is-live')
-        if (f.parentNode) f.parentNode.removeChild(f)
-      })
-      f.src = c.src
-      wrap.appendChild(f)
-      var fit = function () {
-        var w = wrap.clientWidth
-        if (w > 0) f.style.transform = 'scale(' + w / c.width + ')'
-      }
-      if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fit).observe(wrap)
-      else if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(fit)
-      fit()
-    } catch (e) {
-      // keep the generated cover only
-    }
-    return wrap
+  /** Preview image over the generated cover; the cover stays when it fails to load. */
+  function thumbImg(url) {
+    var img = document.createElement('img')
+    img.className = 'av-cards-img'
+    img.alt = ''
+    img.decoding = 'async'
+    img.draggable = false
+    img.addEventListener('load', function () { img.classList.add('is-on') })
+    img.addEventListener('error', function () { if (img.parentNode) img.parentNode.removeChild(img) })
+    img.src = url
+    return img
   }
 
-  function renderCard(card, actions) {
+  function renderCard(card, actions, io) {
     var art = el('article', 'av-cards-card' + (card.selected ? ' is-sel' : ''))
     art.tabIndex = 0
     art.dataset.key = card.key
     art.setAttribute('aria-label', card.title)
+    if (io) io.observe(art)
+    else if (actions.wantThumb) actions.wantThumb(card.key)
 
     var thumb = el('div', 'av-cards-thumb')
-    thumb.appendChild(card.cover.type === 'live' ? liveCover(card.cover) : generatedCover(card.cover))
+    thumb.appendChild(generatedCover(card.cover))
+    if (card.thumbUrl) thumb.appendChild(thumbImg(card.thumbUrl))
+    else if (card.thumbReason) thumb.title = 'No preview: ' + card.thumbReason
 
     var badge = el('span', 'av-badge av-cards-kind av-kind-' + card.kind)
     badge.appendChild(AV.icon(card.kind === 'visual' ? 'visual' : 'artifact'))
@@ -273,6 +249,18 @@
     rootEl.textContent = ''
     var lay = layout(vm)
     var wrap = el('div', 'av-cards')
+    var io = null
+    var ioFired = false
+    if (actions.wantThumb && typeof IntersectionObserver !== 'undefined') {
+      io = new IntersectionObserver(function (entries) {
+        ioFired = true
+        entries.forEach(function (e) {
+          if (!e.isIntersecting) return
+          io.unobserve(e.target)
+          actions.wantThumb(e.target.dataset.key)
+        })
+      }, { root: null, rootMargin: '120px' })
+    }
     if (!lay.pinned.length && !lay.cards.length) {
       wrap.appendChild(el('div', 'av-empty', 'Nothing here yet.'))
       rootEl.appendChild(wrap)
@@ -282,7 +270,7 @@
       wrap.appendChild(sectionHead('pin', 'Pinned', lay.pinned.length))
       var rail = el('div', 'av-cards-rail')
       lay.pinned.forEach(function (c) {
-        rail.appendChild(renderCard(c, actions))
+        rail.appendChild(renderCard(c, actions, io))
       })
       wrap.appendChild(rail)
     }
@@ -290,11 +278,19 @@
       if (lay.pinned.length) wrap.appendChild(sectionHead(null, 'All', lay.cards.length))
       var grid = el('div', 'av-cards-grid')
       lay.cards.forEach(function (c) {
-        grid.appendChild(renderCard(c, actions))
+        grid.appendChild(renderCard(c, actions, io))
       })
       wrap.appendChild(grid)
     }
     rootEl.appendChild(wrap)
+    if (io) {
+      // Safety net: some hosts never deliver IntersectionObserver callbacks; then request every card.
+      setTimeout(function () {
+        if (!M().ioFallbackDue(ioFired, wrap.isConnected)) return
+        io.disconnect()
+        wrap.querySelectorAll('.av-cards-card').forEach(function (c) { actions.wantThumb(c.dataset.key) })
+      }, M().IO_FALLBACK_MS)
+    }
   }
 
   AV.views.cards = { id: 'cards', label: 'Cards', render: render, _layout: layout, _coverSeed: coverSeed }

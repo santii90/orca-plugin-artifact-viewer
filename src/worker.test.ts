@@ -4,6 +4,10 @@ import { createWorker, type IndexerLike, type IndexerOpts } from './worker.ts'
 import { CliError } from './cli.ts'
 import type { PathsEnv } from './paths.ts'
 import type { Item } from './types.ts'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import type { CaptureIo } from './thumbs.ts'
 
 const rows = [
   { id: 'w1', kind: 'worktree', name: 'main', projectId: 'p1', path: 'C:/dev/app', branch: 'refs/heads/main', hostId: 'local' },
@@ -55,12 +59,14 @@ function fakeIndexer() {
 type SetupOpts = {
   runCli?: (args: string[]) => Promise<unknown>
   ctx?: unknown
-  settings?: Record<string, string>
+  settings?: Record<string, string | boolean>
   /** Projects folders that exist (default: ~/.claude/projects). */
   existing?: string[]
   query?: IndexerLike['query']
   /** Extra host method overrides. */
   results?: Record<string, unknown>
+  thumbIo?: { io?: CaptureIo }
+  thumbsDir?: string
 }
 
 async function setup(opts: SetupOpts = {}) {
@@ -88,7 +94,9 @@ async function setup(opts: SetupOpts = {}) {
     },
     killCli: () => void killed++,
     config: { throttleMs: 20, debounceMs: 30, staleMs: 60_000 },
-    pathsEnv
+    pathsEnv,
+    thumbsDir: opts.thumbsDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'worker-thumbs-')),
+    thumbIo: opts.thumbIo
   })
   const host = mockHost({
     results: {
@@ -467,4 +475,130 @@ test('changing claudeDirs rebuilds the indexer and aborts the scan; changing cli
   await waitFor(() => created.length === 2)
   assert.equal(fx.state.scans[0].signal?.aborted, true)
   await worker.deactivate()
+})
+
+// ---- thumbnails
+
+const SHOT = 'C:\\Temp\\orca-browser-screenshots\\u-screenshot.jpg'
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(800, 3)])
+const dataUrlOf = (b: Buffer): string => `data:image/jpeg;base64,${b.toString('base64')}`
+
+/** A CLI that behaves like Orca's for the capture pipeline: tab create gives a page id, the tab sits on `/code/artifact/a`. */
+function captureCli(over: { path?: string } = {}) {
+  return async (args: string[]): Promise<unknown> => {
+    if (args[0] === 'tab') return { browserPageId: 'page-9' }
+    if (args[0] === 'eval') {
+      const withRect = args[4].includes('getBoundingClientRect')
+      const p = over.path ?? '/code/artifact/a'
+      return { result: JSON.stringify(withRect ? { path: p, r: { x: 0, y: 45, width: 800, height: 600 } } : { path: p }) }
+    }
+    if (args[0] === 'screenshot') return { path: SHOT }
+    return {}
+  }
+}
+const fakeThumbIo = (unlinked: string[] = []): { io: CaptureIo } => ({
+  io: { readFile: async () => JPEG, unlink: async (p) => void unlinked.push(p), sleep: async () => {} }
+})
+
+test('open captures the opened claude tab in the background; list then fills Item.thumb; thumb answers raw', async () => {
+  const unlinked: string[] = []
+  const { worker } = await setup({ runCli: captureCli(), thumbIo: fakeThumbIo(unlinked) })
+  const before = worker.posts.length
+  assert.deepEqual(await worker.request('artifacts.open', { key: 'claude:a' }), { ok: true })
+  await waitFor(() => unlinked.length > 0 && worker.posts.length > before)
+  const list = await worker.request('artifacts.list', { scope: 'repo' })
+  assert.equal(list.items.find((i) => i.key === 'claude:a')?.thumb, '2')
+  assert.equal(list.items.find((i) => i.key === 'visual:c/x.html')?.thumb, undefined)
+  const t = await worker.request('artifacts.thumb', { key: 'claude:a' })
+  assert.equal(t.kind, 'raw')
+  if (t.kind === 'raw') assert.deepEqual(t.crop, { x: 0, y: 45, w: 800, h: 600 })
+  await worker.deactivate()
+})
+
+test('open does not wait for the capture and never stores when the tab path changed', async () => {
+  const unlinked: string[] = []
+  const { worker } = await setup({ runCli: captureCli({ path: '/chats/elsewhere' }), thumbIo: fakeThumbIo(unlinked) })
+  assert.deepEqual(await worker.request('artifacts.open', { key: 'claude:a' }), { ok: true })
+  await sleep(60) // negative assertion: settle time for the background capture
+  const list = await worker.request('artifacts.list', { scope: 'repo' })
+  assert.equal(list.items.find((i) => i.key === 'claude:a')?.thumb, undefined)
+  const t = await worker.request('artifacts.thumb', { key: 'claude:a' }) // the failure reason is surfaced for an opened item
+  assert.equal(t.kind === 'none' && /probe: tab is on \/chats\/elsewhere/.test(t.reason ?? ''), true)
+  await worker.deactivate()
+})
+
+test('thumbStore validates the key, a pending raw for the rev, and the JPEG data URL', async () => {
+  const unlinked: string[] = []
+  const { worker } = await setup({ runCli: captureCli(), thumbIo: fakeThumbIo(unlinked) })
+  const good = dataUrlOf(JPEG)
+  assert.equal((await worker.request('artifacts.thumbStore', { key: 'claude:nope', rev: '2', dataUrl: good })).ok, false)
+  assert.deepEqual(await worker.request('artifacts.thumbStore', { key: 'claude:a', rev: '2', dataUrl: good }), { ok: false, reason: 'No pending capture for that rev' })
+  await worker.request('artifacts.open', { key: 'claude:a' })
+  await waitFor(() => unlinked.length > 0)
+  assert.equal((await worker.request('artifacts.thumbStore', { key: 'claude:a', rev: '3', dataUrl: good })).ok, false)
+  assert.equal((await worker.request('artifacts.thumbStore', { key: 'claude:a', rev: '2', dataUrl: 'data:image/png;base64,AAAA' })).ok, false)
+  const big = dataUrlOf(Buffer.concat([JPEG, Buffer.alloc(201 * 1024)]))
+  assert.equal((await worker.request('artifacts.thumbStore', { key: 'claude:a', rev: '2', dataUrl: big })).ok, false)
+  assert.deepEqual(await worker.request('artifacts.thumbStore', { key: 'claude:a', rev: '2', dataUrl: good }), { ok: true })
+  assert.equal((await worker.request('artifacts.thumb', { key: 'claude:a' })).kind, 'ready')
+  await worker.deactivate()
+})
+
+test('refresh full clears stored thumbs; visualPreviews=false disables thumbs and capture-on-open', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-thumbs-'))
+  const unlinked: string[] = []
+  const on = await setup({ runCli: captureCli(), thumbIo: fakeThumbIo(unlinked), thumbsDir: dir })
+  await on.worker.request('artifacts.open', { key: 'claude:a' })
+  await waitFor(() => unlinked.length > 0)
+  assert.ok(fs.readdirSync(dir).length > 0)
+  await on.worker.request('artifacts.refresh', { full: true })
+  assert.equal(fs.existsSync(dir), false)
+  await on.worker.deactivate()
+
+  const cliCalls: string[][] = []
+  const off = await setup({ settings: { visualPreviews: 'false' }, runCli: async (a) => (cliCalls.push(a), captureCli()(a)) })
+  await off.worker.request('artifacts.open', { key: 'claude:a' })
+  await sleep(40) // negative assertion: settle time for a capture that must not start
+  assert.deepEqual(cliCalls.map((c) => c[0]), ['tab'])
+  assert.equal((await off.worker.request('artifacts.thumb', { key: 'visual:c/x.html' })).kind, 'none')
+  await off.worker.deactivate()
+})
+
+test('visualPreviews setting parsing: false-ish values turn previews off, everything else leaves them on', async () => {
+  const reasonFor = async (value: string | boolean | undefined): Promise<string | undefined> => {
+    const { worker } = await setup({ settings: value === undefined ? {} : { visualPreviews: value } })
+    const t = await worker.request('artifacts.thumb', { key: 'visual:c/x.html' })
+    await worker.deactivate()
+    return t.kind === 'none' ? t.reason : undefined
+  }
+  for (const off of [false, 'false', 'FALSE', 'off', ' No ', '0']) assert.match((await reasonFor(off)) ?? '', /turned off/, String(off))
+  for (const on of [undefined, true, 'true', 'on', '', 'yes']) assert.equal(/turned off/.test((await reasonFor(on)) ?? ""), false, String(on))
+})
+
+test('deactivate during a claude capture: nothing is stored and nothing is posted afterwards', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-thumbs-'))
+  const base = captureCli()
+  let release!: () => void
+  const gate = new Promise<void>((res) => (release = res))
+  let atShot = false
+  const unlinked: string[] = []
+  const { worker } = await setup({
+    thumbsDir: dir,
+    thumbIo: fakeThumbIo(unlinked),
+    runCli: async (args) => {
+      if (args[0] === 'screenshot') {
+        atShot = true
+        await gate
+      }
+      return base(args)
+    }
+  })
+  await worker.request('artifacts.open', { key: 'claude:a' })
+  await waitFor(() => atShot)
+  const before = worker.posts.length
+  await worker.deactivate()
+  release()
+  await sleep(60) // negative assertion: settle time for the aborted capture to unwind
+  assert.equal(worker.posts.length, before)
+  assert.deepEqual(fs.existsSync(dir) ? fs.readdirSync(dir) : [], [])
 })

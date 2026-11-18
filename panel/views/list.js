@@ -35,8 +35,19 @@
     dl.appendChild(el('dd', mono ? 'av-mono' : null, value))
   }
 
-  function buildDetail(item, vm) {
+  function buildDetail(item, vm, actions) {
     var d = el('div', 'av-list-detail')
+    var tu = vm.thumbUrl && vm.thumbUrl(item.key)
+    if (vm.thumbUrl && actions && actions.wantThumb) actions.wantThumb(item.key)
+    if (tu) {
+      var img = document.createElement('img')
+      img.className = 'av-list-thumb'
+      img.alt = ''
+      img.decoding = 'async'
+      img.addEventListener('error', function () { img.remove() })
+      img.src = tu
+      d.appendChild(img)
+    }
     if (item.description) d.appendChild(el('div', 'av-list-desc', item.description))
     var dl = el('dl', 'av-list-facts')
     var titles = (item.sessionIds || []).map(function (id) { return sessionTitle(vm, id) })
@@ -130,7 +141,7 @@
     acts.appendChild(more)
     wrap.appendChild(acts)
 
-    if (selected) wrap.appendChild(buildDetail(item, vm))
+    if (selected) wrap.appendChild(buildDetail(item, vm, actions))
     return wrap
   }
 

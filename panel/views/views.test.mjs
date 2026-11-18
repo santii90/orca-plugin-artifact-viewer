@@ -63,22 +63,21 @@ test('cards: pinned split from grid, every item once', () => {
   assert.ok(l.pinned.every((c) => c.pinned))
 })
 
-test('cards: claude gets generated cover with host and type tag; visual gets live cover with fallback', () => {
+test('cards: every card has a generated cover; thumbUrl comes from vm.thumbUrl', () => {
   const l = cards.layout(vm())
   const all = [...l.pinned, ...l.cards]
-  const claude = all.find((c) => c.kind === 'claude' && c.cover.type === 'generated')
+  assert.ok(all.every((c) => c.cover.type === 'generated' && c.thumbUrl === null))
+  const claude = all.find((c) => c.kind === 'claude')
   assert.equal(claude.cover.host, 'claude.ai')
   assert.equal(claude.cover.icon, 'artifact')
-  const typed = all.find((c) => c.key === 'claude:Cnv4sDemoSlug0000000001')
-  assert.equal(typed.cover.tag, '') // opaque type URL -> no generic tag (kind chip already says Artifact)
-  const untyped = all.find((c) => c.key === 'claude:LgsRdsDemoSlug000000002')
-  assert.equal(untyped.cover.tag, '')
+  assert.equal(all.find((c) => c.key === 'claude:Cnv4sDemoSlug0000000001').cover.tag, '')
   const vis = all.find((c) => c.kind === 'visual')
-  assert.equal(vis.cover.type, 'live')
-  assert.ok(vis.cover.src.startsWith('file:///'))
-  assert.equal(vis.cover.width, 1024)
-  assert.equal(vis.cover.fallback.type, 'generated')
-  assert.equal(vis.cover.fallback.icon, 'visual')
+  assert.equal(vis.cover.icon, 'visual')
+  assert.equal(vis.cover.host, 'local file')
+  const l2 = cards.layout(vm({ thumbUrl: (k) => (k === vis.key ? 'data:image/jpeg;base64,AAAA' : null) }))
+  const all2 = [...l2.pinned, ...l2.cards]
+  assert.equal(all2.find((c) => c.key === vis.key).thumbUrl, 'data:image/jpeg;base64,AAAA')
+  assert.equal(all2.filter((c) => c.thumbUrl).length, 1)
 })
 
 test('cards: type tag maps known words', () => {

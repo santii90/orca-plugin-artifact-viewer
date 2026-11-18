@@ -65,6 +65,61 @@
     return null
   }
 
+  // ---- thumbnails ----
+  var THUMB_W = 480
+  var THUMB_H = 300
+  var thumbRenderTimer
+
+  var thumbQ = M.createThumbQueue({
+    request: function (method, params) { return api.plugin.request(method, params) },
+    downscale: function (res) { return downscale(res) },
+    now: function () { return Date.now() },
+    onChange: function () { scheduleThumbRender() },
+    max: 3
+  })
+
+  function thumbUrl(key) { return thumbQ.url(key) }
+  function thumbReason(key) { return thumbQ.reason(key) }
+
+  function scheduleThumbRender() {
+    clearTimeout(thumbRenderTimer)
+    thumbRenderTimer = setTimeout(function () {
+      if (menuEl) return scheduleThumbRender()
+      render()
+    }, 150)
+  }
+
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image()
+      img.onload = function () { resolve(img) }
+      img.onerror = function () { reject(new Error('image decode failed')) }
+      img.src = src
+    })
+  }
+
+  /** Crop + cover/top-anchor a raw capture to 480x300 JPEG (q0.8, retry q0.6 above 200 KB). */
+  function downscale(res) {
+    return loadImage(res.dataUrl).then(function (img) {
+      var r = M.coverCropRect(img.naturalWidth, img.naturalHeight, res.crop, THUMB_W, THUMB_H)
+      var c = document.createElement('canvas')
+      c.width = THUMB_W
+      c.height = THUMB_H
+      var ctx = c.getContext('2d')
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, THUMB_W, THUMB_H)
+      ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, THUMB_W, THUMB_H)
+      var out = c.toDataURL('image/jpeg', 0.8)
+      if (M.dataUrlBytes(out) > 200 * 1024) out = c.toDataURL('image/jpeg', 0.6)
+      return out
+    })
+  }
+
+  function wantThumb(key) {
+    if (!api || !api.plugin) return
+    thumbQ.want(itemByKey(key))
+  }
+
   function load() {
     var seq = ++reqSeq
     if (!api || !api.plugin) {
@@ -77,15 +132,20 @@
       if (seq !== reqSeq) return
       state.loading = false
       if (res && Array.isArray(res.items) && Array.isArray(res.pins) && res.context) {
+        var prevPath = state.data && state.data.context && state.data.context.worktreePath
+        if (prevPath && prevPath !== res.context.worktreePath) state.selectedKey = null
         state.data = res
+        thumbQ.bumpList()
         state.requestError = ''
       } else {
+        state.data = null
         state.requestError = 'Unexpected response from the plugin worker'
       }
       render()
     }).catch(function (err) {
       if (seq !== reqSeq) return
       state.loading = false
+      state.data = null // never keep another workspace's items on screen
       state.requestError = 'Could not load artifacts' + (err && (err.message || err.code) ? ': ' + (err.message || err.code) : '.')
       render()
     })
@@ -322,7 +382,8 @@
     copy: copy,
     pin: pin,
     select: select,
-    menu: openMenu
+    menu: openMenu,
+    wantThumb: wantThumb
   }
 
   // ---- controls ----
@@ -539,7 +600,9 @@
       query: state.q,
       kind: state.kind,
       groupBy: state.groupBy,
-      canOpenExternal: canOpenExternal
+      canOpenExternal: canOpenExternal,
+      thumbUrl: thumbUrl,
+      thumbReason: thumbReason
     }
     try {
       view.render(root, vm, actions)

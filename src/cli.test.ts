@@ -1,5 +1,5 @@
 import { test, assert } from 'orca/testing'
-import { CliError, createCliRunner, findCli, resolveCli, tabCreateArgs } from './cli.ts'
+import { CliError, createCliRunner, evalArgs, extractEvalObject, extractPageId, extractScreenshotPath, findCli, resolveCli, screenshotArgs, tabCreateArgs, waitFnArgs, waitLoadArgs } from './cli.ts'
 import { cacheFilePath, claudeDirs, projectsDirs, projectsDirsReport, type PathsEnv } from './paths.ts'
 
 const winExe = 'C:\\Users\\u\\AppData\\Local\\Programs\\orca\\resources\\bin\\orca.exe'
@@ -169,4 +169,53 @@ test('paths: projectsDirsReport names configured folders that are missing', () =
   assert.deepEqual(r.looked, ['/a/projects', '/b/projects'])
   assert.deepEqual(r.missingConfigured, ['/b/projects'])
   assert.deepEqual(projectsDirsReport('', pathsEnv('linux', {})).missingConfigured, [])
+})
+
+test('capture arg builders validate the page id and build exact args', () => {
+  assert.deepEqual(waitLoadArgs('p-1', 15000), ['wait', '--page', 'p-1', '--load', 'load', '--timeout', '15000'])
+  assert.deepEqual(waitFnArgs('p-1', 'x', 10000), ['wait', '--page', 'p-1', '--fn', 'x', '--timeout', '10000'])
+  assert.deepEqual(evalArgs('p-1', '1+1'), ['eval', '--page', 'p-1', '--expression', '1+1'])
+  assert.deepEqual(screenshotArgs('p-1'), ['screenshot', '--page', 'p-1', '--format', 'jpeg'])
+  for (const bad of ['', 'a b', 'a;b', '--x y', '../a']) assert.throws(() => screenshotArgs(bad), /Invalid browser page id/)
+})
+
+test('result extractors tolerate wrapped shapes', () => {
+  assert.equal(extractPageId({ browserPageId: 'abc-1' }), 'abc-1')
+  assert.equal(extractPageId({ tab: { browserPageId: 'abc-1' } }), 'abc-1')
+  assert.equal(extractPageId({ browserPageId: 'a b' }), null)
+  assert.equal(extractPageId({}), null)
+  assert.equal(extractScreenshotPath({ path: 'C:\\t\\a.jpg' }), 'C:\\t\\a.jpg')
+  assert.equal(extractScreenshotPath({}), null)
+  assert.deepEqual(extractEvalObject('{"path":"/a","r":null}'), { path: '/a', r: null })
+  assert.deepEqual(extractEvalObject({ result: { value: '{"path":"/a"}' } }), { path: '/a' })
+  assert.equal(extractEvalObject({ value: 'oops' }), null)
+})
+
+test('extractors accept the real orca --json shapes', () => {
+  // After the envelope: tab create -> { browserPageId }, screenshot -> { path }, eval -> { result: "<JSON string>" }.
+  assert.equal(extractPageId({ browserPageId: 'abc-1', url: 'https://claude.ai/' }), 'abc-1')
+  assert.equal(extractScreenshotPath({ path: 'C:/Temp/orca-browser-screenshots/u-screenshot.jpg' }), 'C:/Temp/orca-browser-screenshots/u-screenshot.jpg')
+  assert.deepEqual(extractEvalObject({ result: JSON.stringify({ path: '/artifact/a', r: null }) }), { path: '/artifact/a', r: null })
+  assert.deepEqual(extractEvalObject({ result: JSON.stringify({ path: '/artifact/a', r: { x: 0, y: 45, width: 8, height: 9 } }) }), {
+    path: '/artifact/a', r: { x: 0, y: 45, width: 8, height: 9 }
+  })
+  assert.equal(extractEvalObject({ result: 'undefined' }), null)
+})
+
+test('createCliRunner unwraps the real envelope for tab create, eval and screenshot', async () => {
+  const outputs: Record<string, string> = {
+    tab: '{"ok":true,"result":{"browserPageId":"page-7"}}',
+    eval: '{"ok":true,"result":{"result":"{\\"path\\":\\"/a\\",\\"r\\":null}"}}',
+    screenshot: '{"ok":true,"result":{"path":"C:/Temp/orca-browser-screenshots/u.jpg"}}'
+  }
+  const runner = createCliRunner(
+    (_file, args, _opts, cb) => {
+      cb(null, outputs[args[0]], '')
+      return { kill() {} }
+    },
+    { home: '/h', platform: 'linux', base: {} }
+  )
+  assert.equal(extractPageId(await runner.run('/bin/orca', ['tab', 'create'], 1000)), 'page-7')
+  assert.deepEqual(extractEvalObject(await runner.run('/bin/orca', evalArgs('p', '1'), 1000)), { path: '/a', r: null })
+  assert.equal(extractScreenshotPath(await runner.run('/bin/orca', screenshotArgs('p'), 1000)), 'C:/Temp/orca-browser-screenshots/u.jpg')
 })

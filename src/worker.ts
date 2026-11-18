@@ -1,8 +1,9 @@
 import type { OrcaWorkerApi } from 'orca/worker'
-import type { Item, ListContext, ListResponse, OpenResult, Scope, SessionRef } from './types.ts'
+import type { Item, ListContext, ListResponse, OpenResult, Scope, SessionRef, ThumbResult } from './types.ts'
 import { resolveScope } from './scope.ts'
-import { CliError, createCliRunner, defaultFinderEnv, resolveCli, tabCreateArgs } from './cli.ts'
-import { cacheFilePath, defaultPathsEnv, projectsDirsReport, type PathsEnv, type ProjectsDirsReport } from './paths.ts'
+import { CliError, createCliRunner, defaultFinderEnv, extractPageId, resolveCli, tabCreateArgs } from './cli.ts'
+import { createThumbManager, type CaptureIo, type ProcDeps, type ThumbManager } from './thumbs.ts'
+import { cacheFilePath, defaultPathsEnv, findBrowser, projectsDirsReport, thumbsDir, type PathsEnv, type ProjectsDirsReport } from './paths.ts'
 
 export type IndexerLike = {
   load(): Promise<void>
@@ -18,7 +19,7 @@ export type IndexerLike = {
 
 export type IndexerOpts = { cacheFile: string; projectsDirs: string[]; log: (msg: string) => void }
 
-export type WorkerSettings = { cliPath: string; claudeDirs: string }
+export type WorkerSettings = { cliPath: string; claudeDirs: string; visualPreviews: boolean; browserPath: string }
 
 export type WorkerDeps = {
   createIndexer(opts: IndexerOpts, settings: WorkerSettings): IndexerLike
@@ -28,6 +29,20 @@ export type WorkerDeps = {
   config?: Partial<typeof DEFAULTS>
   /** Where Claude's folders and the cache live; defaults to the real machine. */
   pathsEnv?: PathsEnv
+  /** Test seams for thumbnail capture (process spawning, file reads, sleeping). */
+  thumbIo?: { io?: CaptureIo; proc?: ProcDeps }
+  /** Overrides where thumbnails are stored (tests). */
+  thumbsDir?: string
+}
+
+const snippet = (v: unknown): string => {
+  let t: string
+  try {
+    t = JSON.stringify(v) ?? String(v)
+  } catch {
+    t = String(v)
+  }
+  return t.length > 160 ? `${t.slice(0, 160)}...` : t
 }
 
 const DEFAULTS = {
@@ -54,11 +69,13 @@ export function createWorker(deps: WorkerDeps): {
 } {
   const cfg = { ...DEFAULTS, ...deps.config }
   let orca: OrcaWorkerApi
-  let settings: WorkerSettings = { cliPath: '', claudeDirs: '' }
+  let settings: WorkerSettings = { cliPath: '', claudeDirs: '', visualPreviews: true, browserPath: '' }
+  let thumbs: ThumbManager | null = null
   let indexer: IndexerLike
   let loadPromise: Promise<void> = Promise.resolve()
   let scan: AbortController | null = null
   let scanError: string | null = null
+  let thumbClearFailed = false
   let builtDirsKey = ''
   let pinChain: Promise<unknown> = Promise.resolve()
   let lastPostAt = 0
@@ -73,7 +90,13 @@ export function createWorker(deps: WorkerDeps): {
   const host = () => orca.host as unknown as Parameters<typeof resolveScope>[0]
 
   function readSettings(raw: Record<string, unknown> | undefined): WorkerSettings {
-    return { cliPath: String(raw?.cliPath ?? ''), claudeDirs: String(raw?.claudeDirs ?? '') }
+    const vp = raw?.visualPreviews
+    return {
+      cliPath: String(raw?.cliPath ?? ''),
+      claudeDirs: String(raw?.claudeDirs ?? ''),
+      visualPreviews: !(vp === false || (typeof vp === 'string' && /^(false|off|no|0)$/i.test(vp.trim()))),
+      browserPath: String(raw?.browserPath ?? '')
+    }
   }
 
   const pathsEnv = (): PathsEnv => deps.pathsEnv ?? defaultPathsEnv()
@@ -150,6 +173,7 @@ export function createWorker(deps: WorkerDeps): {
           orca.log(`index cache write failed: ${r.cacheWriteError}`)
           parts.push('index cache could not be saved')
         }
+        if (thumbClearFailed) parts.push('thumbnail cache could not be cleared')
         scanError = parts.length > 0 ? parts.join('; ').replace(/^./, (c) => c.toUpperCase()) : null
         orca.log(`scan done: ${roots.length} root(s), ${r.filesRead} file(s) read, changed=${r.changed}, failed=${r.failed ?? 0}`)
       } catch (e) {
@@ -233,6 +257,13 @@ export function createWorker(deps: WorkerDeps): {
         orca.log(error)
       }
     }
+    if (items.length > 0 && thumbs) {
+      try {
+        items = await thumbs.fill(items.map((i) => ({ ...i })))
+      } catch (e) {
+        orca.log(`thumbs fill failed: ${errMsg(e)}`)
+      }
+    }
     return {
       rev: indexer.rev,
       indexing: scan !== null,
@@ -264,9 +295,17 @@ export function createWorker(deps: WorkerDeps): {
       const gate = new AbortController()
       scan = gate
       scanError = null
+      thumbClearFailed = false
       scannedAt.clear()
       try {
         await indexer.clear()
+        try {
+          await thumbs?.clearAll()
+        } catch (e) {
+          thumbClearFailed = true
+          scanError = 'Thumbnail cache could not be cleared'
+          orca.log(`thumbnail cache clear failed: ${errMsg(e)}`)
+        }
       } catch (e) {
         if (scan === gate) scan = null
         throw e
@@ -300,12 +339,39 @@ export function createWorker(deps: WorkerDeps): {
       return { ok: false, reason: 'Refusing to open a URL that is not https://claude.ai/... or file:///...' }
     }
     try {
-      await deps.runCli(tabCreateArgs(item.url, worktreePath), cfg.openTimeoutMs, settings.cliPath)
+      const created = await deps.runCli(tabCreateArgs(item.url, worktreePath), cfg.openTimeoutMs, settings.cliPath)
+      if (item.kind === 'claude' && thumbs) {
+        const pageId = extractPageId(created)
+        if (pageId) thumbs.captureOpened(pageId, { ...item })
+        else orca.log(`thumb ${item.key}: tab create returned no page id (output: ${snippet(created)})`)
+      }
       return { ok: true }
     } catch (e) {
       orca.log(`open failed: ${errMsg(e)}`)
       return { ok: false, reason: errMsg(e) }
     }
+  }
+
+  async function findItem(key: string): Promise<Item | null> {
+    if (typeof key !== 'string' || !key || key.length > 500) throw invalid('invalid key')
+    const r = await resolveScope(host(), 'repo', (m) => orca.log(m))
+    if (r.roots.length === 0) return null
+    await waitLoaded()
+    return indexer.query(r.roots).items.find((i) => i.key === key) ?? null
+  }
+
+  async function thumb(key: string): Promise<ThumbResult> {
+    if (!thumbs) return { kind: 'none', reason: 'Previews unavailable' }
+    const item = await findItem(key)
+    if (!item) return { kind: 'none', reason: 'Item not found in the index' }
+    return thumbs.get(item)
+  }
+
+  async function thumbStore(key: string, rev: string, dataUrl: string): Promise<{ ok: boolean; reason?: string }> {
+    if (!thumbs) return { ok: false, reason: 'Previews unavailable' }
+    const item = await findItem(key)
+    if (!item) return { ok: false, reason: 'Item not found in the index' }
+    return thumbs.store(item, rev, dataUrl)
   }
 
   /** Serialised: two quick pins must not read the same list and lose one. */
@@ -332,11 +398,28 @@ export function createWorker(deps: WorkerDeps): {
       orca.log(`settings read failed: ${errMsg(e)}`)
     }
     buildIndexer()
+    thumbs = createThumbManager({
+      dir: deps.thumbsDir ?? thumbsDir(pathsEnv()),
+      log: (m) => orca.log(m),
+      enabled: () => settings.visualPreviews && !disposed,
+      browser: () => findBrowser(settings.browserPath, pathsEnv()),
+      runCli: (args, timeoutMs) => deps.runCli(args, timeoutMs, settings.cliPath),
+      onStored: () => {
+        if (!disposed) postChanged()
+      },
+      io: deps.thumbIo?.io,
+      proc: deps.thumbIo?.proc
+    })
 
     disposables.push(
       orca.panels.handle('artifacts.list', (input) => list((input as { scope: Scope } | undefined)?.scope as Scope)),
       orca.panels.handle('artifacts.refresh', (input) => refresh(Boolean((input as { full?: boolean } | undefined)?.full))),
       orca.panels.handle('artifacts.open', (input) => open((input as { key: string } | undefined)?.key as string)),
+      orca.panels.handle('artifacts.thumb', (input) => thumb((input as { key: string } | undefined)?.key as string)),
+      orca.panels.handle('artifacts.thumbStore', (input) => {
+        const i = input as { key: string; rev: string; dataUrl: string } | undefined
+        return thumbStore(i?.key as string, i?.rev as string, i?.dataUrl as string)
+      }),
       orca.panels.handle('artifacts.pin', async (input) =>
         pin((input as { key: string })?.key, Boolean((input as { pinned: boolean })?.pinned))
       ),
@@ -356,6 +439,7 @@ export function createWorker(deps: WorkerDeps): {
           try {
             const next = readSettings(await orca.settings.get())
             const dirsChanged = next.claudeDirs !== settings.claudeDirs
+            if (!next.visualPreviews) thumbs?.abortAll()
             settings = next
             if (!dirsChanged) return
             scan?.abort()
@@ -376,6 +460,7 @@ export function createWorker(deps: WorkerDeps): {
     disposed = true
     scan?.abort()
     scan = null
+    thumbs?.abortAll()
     if (trailing) clearTimeout(trailing)
     if (debounce) clearTimeout(debounce)
     trailing = debounce = null

@@ -50,7 +50,21 @@ export type Item = {
   sessionIds: string[]
   /** `cwd` of the latest publish. */
   lastCwd: string
+  /** Rev token of the stored preview thumbnail (absent = none yet). Changes when a newer one is stored. */
+  thumb?: string
 }
+
+/** Answer of `artifacts.thumb`. */
+export type ThumbResult =
+  /** A stored thumbnail (JPEG, ~480×300). */
+  | { kind: 'ready'; rev: string; dataUrl: string }
+  /** A full-size capture the worker could not downscale itself: the panel crops `crop` (CSS px of
+   *  the capture) to 480×300 cover/top, encodes JPEG and sends it back with `artifacts.thumbStore`. */
+  | { kind: 'raw'; rev: string; dataUrl: string; crop: { x: number; y: number; w: number; h: number } | null }
+  /** A visual's capture was queued; `artifacts.changed` follows when it is stored. */
+  | { kind: 'capturing' }
+  /** Nothing available (claude item never opened, previews disabled, no browser, capture failed). */
+  | { kind: 'none'; reason?: string }
 
 export type WorktreeRef = {
   path: string

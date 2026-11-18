@@ -159,6 +159,195 @@
     return item && item.publishCount > 1 ? 'v' + item.publishCount : ''
   }
 
+  /**
+   * Source rect for drawImage so the (crop of the) image fills outW x outH, cover-fit and top-anchored
+   * (centered horizontally). `crop` is {x,y,w,h} in image px or null for the whole image.
+   */
+  function coverCropRect(imgW, imgH, crop, outW, outH) {
+    var rx = 0
+    var ry = 0
+    var rw = imgW
+    var rh = imgH
+    if (crop && crop.w > 0 && crop.h > 0) {
+      rx = Math.max(0, Math.min(imgW - 1, crop.x || 0))
+      ry = Math.max(0, Math.min(imgH - 1, crop.y || 0))
+      rw = Math.max(1, Math.min(imgW - rx, crop.w))
+      rh = Math.max(1, Math.min(imgH - ry, crop.h))
+    }
+    var target = outW / outH
+    var sw = rw
+    var sh = rh
+    var sx = rx
+    if (rw / rh > target) {
+      sw = rh * target
+      sx = rx + (rw - sw) / 2
+    } else {
+      sh = rw / target
+    }
+    return { sx: sx, sy: ry, sw: sw, sh: sh }
+  }
+
+  /**
+   * Should a preview be requested? `entry` is the panel's cache record
+   * { want, rev, url, state: 'pending'|'ready'|'capturing'|'none' } or undefined.
+   * `want` is the item.thumb seen when it was requested. Each (key, thumb rev) is asked once.
+   */
+  var CAPTURE_RECHECK_MS = 60000
+  var ERROR_RETRY_MS = 30000
+  var MAX_ATTEMPTS = 3
+
+  /**
+   * ctx = { now, listRev }. Entry: { want, state, at, listRev, attempts }.
+   * - never while a request is in flight ('pending');
+   * - item.thumb changed or vanished since the last ask -> again (stale rev replaced, visual lost its thumb);
+   * - 'capturing' -> again after a newer list (artifacts.changed) or > 60 s;
+   * - 'error' -> again after 30 s, at most 3 attempts per rev; 'none'/'ready' -> never until the rev changes.
+   */
+  function thumbNeeded(item, entry, ctx) {
+    if (!item) return false
+    ctx = ctx || {}
+    var thumb = item.thumb || null
+    if (!thumb && item.kind !== 'visual') return false
+    if (!entry) return true
+    if (entry.state === 'pending') return false
+    if ((entry.want || null) !== thumb) return true
+    var now = ctx.now == null ? Date.now() : ctx.now
+    if (entry.state === 'capturing') {
+      return (ctx.listRev != null && entry.listRev != null && ctx.listRev > entry.listRev) || now - entry.at > CAPTURE_RECHECK_MS
+    }
+    if (entry.state === 'error') return (entry.attempts || 0) < MAX_ATTEMPTS && now - entry.at >= ERROR_RETRY_MS
+    return false
+  }
+
+  /** IntersectionObserver safety net: when no callback ever fired, request every card. */
+  var IO_FALLBACK_MS = 1500
+  function ioFallbackDue(ioFired, connected) {
+    return !ioFired && !!connected
+  }
+
+  /**
+   * Thumbnail request queue. opts: { request(method, params) -> Promise, downscale(res) -> Promise<dataUrl>,
+   * now(), onChange(key), max, log }. Entries: key -> { want, rev, url, state, reason, at, listRev, attempts }.
+   */
+  function createThumbQueue(opts) {
+    var request = opts.request
+    var downscale = opts.downscale
+    var now = opts.now || Date.now
+    var onChange = opts.onChange || function () {}
+    var max = opts.max || 3
+    var log = opts.log || (typeof console !== 'undefined' ? console : { info: function () {}, warn: function () {} })
+    var entries = new Map()
+    var queue = []
+    var inFlight = 0
+    var listRev = 0
+    var seenReasons = new Set()
+
+    function fetchThumb(key) {
+      return Promise.resolve(request('artifacts.thumb', { key: key })).then(function (res) {
+        if (!res || typeof res !== 'object') return { state: 'none' }
+        if (res.kind === 'ready' && res.dataUrl) return { state: 'ready', rev: res.rev, url: res.dataUrl }
+        if (res.kind === 'raw' && res.dataUrl) {
+          return Promise.resolve(downscale(res)).then(function (out) {
+            // Show the downscaled image this session even when the worker refuses or fails to store it.
+            return Promise.resolve(request('artifacts.thumbStore', { key: key, rev: res.rev, dataUrl: out })).then(function (r) {
+              if (r && r.ok === false) log.warn('[artifacts] thumbStore refused', key, r.reason)
+            }, function (err) {
+              log.warn('[artifacts] thumbStore failed', key, err)
+            }).then(function () {
+              return { state: 'ready', rev: res.rev, url: out }
+            })
+          })
+        }
+        if (res.kind === 'capturing') return { state: 'capturing' }
+        return { state: 'none', reason: res.reason ? String(res.reason) : undefined }
+      })
+    }
+
+    function settle(key, entry, r) {
+      if (entries.get(key) !== entry) return // a newer request owns this key now
+      var prevUrl = entry.url
+      var prevReason = entry.reason
+      entry.state = r.state
+      entry.at = now()
+      entry.reason = r.state === 'none' ? r.reason : undefined
+      if (r.url) {
+        entry.url = r.url
+        entry.rev = r.rev
+      }
+      if (r.state === 'none' && r.reason && !seenReasons.has(r.reason)) {
+        seenReasons.add(r.reason)
+        log.info('[artifacts] no preview', key, r.reason)
+      }
+      if (entry.url !== prevUrl || entry.reason !== prevReason) onChange(key)
+    }
+
+    function run(key, entry) {
+      inFlight++
+      var p
+      try {
+        p = fetchThumb(key)
+      } catch (e) {
+        p = Promise.reject(e)
+      }
+      p.then(null, function (err) {
+        log.warn('[artifacts] thumb', key, err)
+        return { state: 'error' }
+      }).then(function (r) {
+        settle(key, entry, r)
+      }).then(null, function (err) {
+        log.warn('[artifacts] thumb', key, err)
+      }).then(function () {
+        inFlight--
+        pump()
+      })
+    }
+
+    function pump() {
+      while (inFlight < max && queue.length) {
+        var key = queue.shift()
+        var entry = entries.get(key)
+        if (!entry || entry.state !== 'pending') continue
+        run(key, entry)
+      }
+    }
+
+    return {
+      /** Call when a fresh list arrived (new list rev): lets 'capturing' entries re-ask. */
+      bumpList: function () { listRev++ },
+      want: function (item) {
+        if (!item) return false
+        var prev = entries.get(item.key)
+        if (!thumbNeeded(item, prev, { now: now(), listRev: listRev })) return false
+        var want = item.thumb || null
+        var sameRev = prev && (prev.want || null) === want
+        entries.set(item.key, {
+          want: want,
+          rev: prev ? prev.rev : null,
+          url: prev ? prev.url : null,
+          reason: undefined,
+          state: 'pending',
+          at: now(),
+          listRev: listRev,
+          attempts: (sameRev ? prev.attempts || 0 : 0) + 1
+        })
+        queue.push(item.key)
+        pump()
+        return true
+      },
+      url: function (key) { var e = entries.get(key); return (e && e.url) || null },
+      reason: function (key) { var e = entries.get(key); return (e && e.reason) || null },
+      get: function (key) { return entries.get(key) },
+      inFlight: function () { return inFlight },
+      clear: function () { entries.clear(); queue.length = 0 }
+    }
+  }
+
+  /** Approximate decoded size of a base64 data URL. */
+  function dataUrlBytes(url) {
+    var i = String(url || '').indexOf(',')
+    return i < 0 ? 0 : Math.floor(((url.length - i - 1) * 3) / 4)
+  }
+
   // lucide-style 24x24 stroke icons
   var ICONS = {
     artifact: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
@@ -204,7 +393,13 @@
     hostOf: hostOf,
     fileName: fileName,
     worktreeLabel: worktreeLabel,
-    versionBadge: versionBadge
+    versionBadge: versionBadge,
+    coverCropRect: coverCropRect,
+    thumbNeeded: thumbNeeded,
+    createThumbQueue: createThumbQueue,
+    ioFallbackDue: ioFallbackDue,
+    IO_FALLBACK_MS: IO_FALLBACK_MS,
+    dataUrlBytes: dataUrlBytes
   }
   if (typeof module !== 'undefined') module.exports = AV.model
 })()

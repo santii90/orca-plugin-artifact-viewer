@@ -47,6 +47,20 @@
         "multiline": true,
         "default": "",
         "placeholder": "~/.claude"
+      },
+      {
+        "key": "visualPreviews",
+        "title": "Preview thumbnails",
+        "description": "Capture card previews locally: claude.ai artifacts from Orca's browser when you open them, chat visuals with a headless Edge/Chrome restricted to Orca's CDN allowlist. Turn off to disable all capturing.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "browserPath",
+        "title": "Browser path for visual previews (optional)",
+        "description": "Full path to msedge.exe / chrome.exe if it is not found automatically.",
+        "type": "string",
+        "default": ""
       }
     ]
   },

@@ -13,7 +13,11 @@ A trusted worker (`src/worker.ts`) indexes Claude Code transcripts (`~/.claude/p
 
 Access requested: read workspaces and agent status, own storage and settings. The worker runs with your user's access because it reads local transcripts.
 
-Settings: `cliPath` (Orca CLI, auto-detected) and `claudeDirs` (Claude config folders, auto-detected).
+Settings: `cliPath` (Orca CLI, auto-detected), `claudeDirs` (Claude config folders, auto-detected), `visualPreviews` (card previews, on by default) and `browserPath` (Edge/Chrome for visual previews, auto-detected).
+
+## Privacy: previews
+
+Card previews are captured locally and stored in the cache folder (`thumbs/`, capped at about 300 files / 30 MB). A claude.ai artifact is captured only when you open it from the panel, as a screenshot of its tab in Orca's browser. A chat visual is rendered by a headless Edge/Chrome with its own throwaway profile, no sandbox flags removed, no proxy, WebRTC restricted, and network access limited to Orca's CDN allowlist (jsDelivr, unpkg, cdnjs, esm.sh, Google Fonts). Nothing is uploaded. Turn off the `visualPreviews` setting to disable all capturing; a full refresh deletes stored previews.
 
 Limitations: local workspaces only (no SSH/WSL); artifacts on claude.ai are private, so Orca's browser must be signed in to claude.ai to show them.
 

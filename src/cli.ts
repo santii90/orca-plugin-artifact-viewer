@@ -176,3 +176,70 @@ export function createCliRunner(
     }
   }
 }
+
+const PAGE_ID = /^[A-Za-z0-9-]+$/
+
+function pageArg(pageId: string): string {
+  if (typeof pageId !== 'string' || !PAGE_ID.test(pageId)) throw new CliError('invalid_args', 'Invalid browser page id')
+  return pageId
+}
+
+/** `orca wait --page <id> --load load`: the page finished loading. */
+export function waitLoadArgs(pageId: string, timeoutMs: number): string[] {
+  return ['wait', '--page', pageArg(pageId), '--load', 'load', '--timeout', String(Math.round(timeoutMs))]
+}
+
+/** `orca wait --page <id> --fn <js>`: waits until the expression is truthy. */
+export function waitFnArgs(pageId: string, js: string, timeoutMs: number): string[] {
+  return ['wait', '--page', pageArg(pageId), '--fn', js, '--timeout', String(Math.round(timeoutMs))]
+}
+
+export function evalArgs(pageId: string, js: string): string[] {
+  return ['eval', '--page', pageArg(pageId), '--expression', js]
+}
+
+export function screenshotArgs(pageId: string): string[] {
+  return ['screenshot', '--page', pageArg(pageId), '--format', 'jpeg']
+}
+
+function findKey(v: unknown, keys: string[], depth = 0): string | null {
+  if (!v || typeof v !== 'object' || depth > 3) return null
+  const o = v as Record<string, unknown>
+  for (const k of keys) if (typeof o[k] === 'string') return o[k] as string
+  for (const x of Object.values(o)) {
+    const r = findKey(x, keys, depth + 1)
+    if (r) return r
+  }
+  return null
+}
+
+/** The browser page id from an `orca tab create` result, or null. */
+export function extractPageId(result: unknown): string | null {
+  const id = findKey(result, ['browserPageId', 'pageId'])
+  return id && PAGE_ID.test(id) ? id : null
+}
+
+/** The file path from an `orca screenshot` result, or null. */
+export function extractScreenshotPath(result: unknown): string | null {
+  return findKey(result, ['path'])
+}
+
+/** The JSON object an `orca eval` printed (the result may be wrapped, and may be a JSON string), or null. */
+export function extractEvalObject(result: unknown, depth = 0): Record<string, unknown> | null {
+  if (depth > 3) return null
+  if (typeof result === 'string') {
+    try {
+      return extractEvalObject(JSON.parse(result), depth + 1)
+    } catch {
+      return null
+    }
+  }
+  if (!result || typeof result !== 'object') return null
+  const o = result as Record<string, unknown>
+  if ('path' in o && ('r' in o || typeof o.path === 'string')) return o
+  for (const k of ['value', 'result', 'data']) {
+    const r = extractEvalObject(o[k], depth + 1)
+    if (r) return r
+  }
+  return null
+}

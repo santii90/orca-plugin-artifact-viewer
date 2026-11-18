@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Artifacts</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="views/cards.css" />
+    <link rel="stylesheet" href="views/sessions.css" />
+  </head>
+  <body>
+    <div class="av-app">
+      <header class="av-head">
+        <div class="av-titlebar">
+          <h1 class="av-title">Artifacts</h1>
+          <span class="av-spacer"></span>
+          <div id="av-views" class="av-seg av-seg-icons" role="radiogroup" aria-label="View"></div>
+          <button id="av-refresh" class="av-iconbtn" type="button" title="Refresh" aria-label="Refresh"></button>
+        </div>
+        <div id="av-ctx" class="av-ctx"></div>
+        <div class="av-controls">
+          <label class="av-search">
+            <span id="av-search-icon" class="av-search-icon"></span>
+            <input id="av-q" type="text" placeholder="Search titles, files, links" aria-label="Search artifacts" autocomplete="off" spellcheck="false" />
+            <button id="av-q-clear" class="av-iconbtn av-iconbtn-sm" type="button" title="Clear search" aria-label="Clear search" hidden></button>
+          </label>
+          <div id="av-scope" class="av-seg" role="radiogroup" aria-label="Scope"></div>
+          <div class="av-filterrow">
+            <div id="av-kinds" class="av-chips" role="group" aria-label="Filter by kind"></div>
+            <div id="av-groupby" class="av-seg av-seg-sm" role="radiogroup" aria-label="Group by" hidden></div>
+          </div>
+        </div>
+      </header>
+      <div id="av-banner" class="av-banner" role="alert" hidden></div>
+      <main id="av-scroll" class="av-scroll">
+        <div id="av-root" class="av-root"></div>
+      </main>
+      <div id="av-toast" class="av-toast" role="status" aria-live="polite" hidden></div>
+    </div>
+    <script src="model.js"></script>
+    <script src="views/list.js"></script>
+    <script src="views/cards.js"></script>
+    <script src="views/sessions.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,108 @@
+{
+  "rev": 7,
+  "indexing": false,
+  "scope": "repo",
+  "context": {
+    "worktreePath": "C:\\Users\\dev\\orca\\workspaces\\roleplay-journal\\roleplay-0.16",
+    "worktreeName": "roleplay-0.16",
+    "repoName": "roleplay-journal",
+    "worktrees": [
+      { "path": "C:\\Users\\dev\\Development\\roleplay-journal", "name": "roleplay-journal", "branch": "main", "current": false },
+      { "path": "C:\\Users\\dev\\orca\\workspaces\\roleplay-journal\\roleplay-0.16", "name": "roleplay-0.16", "branch": "roleplay-0.16", "current": true }
+    ]
+  },
+  "items": [
+    {
+      "key": "claude:Cnv4sDemoSlug0000000001",
+      "kind": "claude",
+      "url": "https://claude.ai/artifact/Cnv4sDemoSlug0000000001",
+      "title": "Roleplay Journal · Canvas de diseño",
+      "description": "Design canvas with the journal's screens and components.",
+      "artifactType": "https://claude.ai/artifact/DemoTypeSlug00000001",
+      "firstSeenAt": 1794700000000,
+      "updatedAt": 1794950000000,
+      "publishCount": 4,
+      "versions": [
+        { "at": 1794700000000, "sessionId": "s-main-1", "action": "create", "version": "v-a1" },
+        { "at": 1794800000000, "sessionId": "s-main-1", "action": "update", "version": "v-a2" },
+        { "at": 1794900000000, "sessionId": "s-wt-1", "action": "update", "version": "v-a3" },
+        { "at": 1794950000000, "sessionId": "s-wt-1", "action": "update", "version": "v-a4" }
+      ],
+      "sessionIds": ["s-main-1", "s-wt-1"],
+      "lastCwd": "C:\\Users\\dev\\orca\\workspaces\\roleplay-journal\\roleplay-0.16"
+    },
+    {
+      "key": "visual:0123456789abcdef0123456789abcdef/latency-by-region-7c1e.html",
+      "kind": "visual",
+      "url": "file:///C:/Users/dev/AppData/Roaming/orca/chat-scratch/0123456789abcdef0123456789abcdef/latency-by-region-7c1e.html",
+      "filePath": "C:\\Users\\dev\\AppData\\Roaming\\orca\\chat-scratch\\0123456789abcdef0123456789abcdef\\latency-by-region-7c1e.html",
+      "title": "Latency by region",
+      "firstSeenAt": 1794940000000,
+      "updatedAt": 1794940000000,
+      "publishCount": 1,
+      "versions": [{ "at": 1794940000000, "sessionId": "s-wt-1", "action": "create" }],
+      "sessionIds": ["s-wt-1"],
+      "lastCwd": "C:\\Users\\dev\\orca\\workspaces\\roleplay-journal\\roleplay-0.16"
+    },
+    {
+      "key": "claude:LgsRdsDemoSlug000000002",
+      "kind": "claude",
+      "url": "https://claude.ai/artifact/LgsRdsDemoSlug000000002",
+      "title": "Logs redesign",
+      "firstSeenAt": 1794600000000,
+      "updatedAt": 1794600000000,
+      "publishCount": 1,
+      "versions": [{ "at": 1794600000000, "sessionId": "s-main-2", "action": "create" }],
+      "sessionIds": ["s-main-2"],
+      "lastCwd": "C:\\Users\\dev\\Development\\roleplay-journal"
+    },
+    {
+      "key": "claude:TmlnDemoSlug00000000003",
+      "kind": "claude",
+      "url": "https://claude.ai/code/artifact/0b8f6c1e-2d7a-4f0e-9a51-3c2b9e7d4a10",
+      "title": "Session timeline explainer",
+      "firstSeenAt": 1793000000000,
+      "updatedAt": 1793100000000,
+      "publishCount": 2,
+      "versions": [
+        { "at": 1793000000000, "sessionId": "s-main-2", "action": "create" },
+        { "at": 1793100000000, "sessionId": "s-main-2", "action": "update" }
+      ],
+      "sessionIds": ["s-main-2"],
+      "lastCwd": "C:\\Users\\dev\\Development\\roleplay-journal\\web"
+    }
+  ],
+  "sessions": {
+    "s-main-1": {
+      "sessionId": "s-main-1",
+      "title": "Canvas de diseño del journal",
+      "cwd": "C:\\Users\\dev\\Development\\roleplay-journal",
+      "entrypoint": "orca",
+      "gitBranch": "main",
+      "firstAt": 1794690000000,
+      "lastAt": 1794810000000,
+      "transcriptPath": "C:\\Users\\dev\\.claude\\projects\\C--Users-dev-Development-roleplay-journal\\s-main-1.jsonl"
+    },
+    "s-main-2": {
+      "sessionId": "s-main-2",
+      "cwd": "C:\\Users\\dev\\Development\\roleplay-journal",
+      "entrypoint": "cli",
+      "gitBranch": "main",
+      "firstAt": 1792990000000,
+      "lastAt": 1794610000000,
+      "transcriptPath": "C:\\Users\\dev\\.claude\\projects\\C--Users-dev-Development-roleplay-journal\\s-main-2.jsonl"
+    },
+    "s-wt-1": {
+      "sessionId": "s-wt-1",
+      "title": "Ajustes 0.16 del canvas",
+      "cwd": "C:\\Users\\dev\\orca\\workspaces\\roleplay-journal\\roleplay-0.16",
+      "entrypoint": "orca",
+      "gitBranch": "roleplay-0.16",
+      "firstAt": 1794890000000,
+      "lastAt": 1794960000000,
+      "transcriptPath": "C:\\Users\\dev\\.claude\\projects\\C--Users-dev-orca-workspaces-roleplay-journal-roleplay-0-16\\s-wt-1.jsonl"
+    }
+  },
+  "pins": ["claude:Cnv4sDemoSlug0000000001"],
+  "lastIndexedAt": 1794960500000
+}

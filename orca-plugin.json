@@ -1,0 +1,59 @@
+{
+  "manifestVersion": 2,
+  "id": "artifacts",
+  "name": "Artifacts",
+  "version": "0.1.0",
+  "description": "Lists the claude.ai Artifacts and Orca chat visuals Claude made in this repo's worktrees, in the right sidebar, and opens them in Orca's browser with one click.",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.259"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "artifacts",
+        "title": "Artifacts",
+        "icon": "blocks",
+        "entry": "panel/index.html"
+      }
+    ],
+    "commands": [
+      {
+        "id": "toggleSidebar",
+        "title": "Artifacts: Show or hide the right sidebar",
+        "action": "sidebar.right.toggle"
+      }
+    ],
+    "events": [
+      { "on": "workspace.changed" },
+      { "on": "agent.status.changed" }
+    ],
+    "settings": [
+      {
+        "key": "cliPath",
+        "title": "Orca CLI path (optional)",
+        "description": "Full path to orca.exe / orca if it is not found automatically.",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "key": "claudeDirs",
+        "title": "Claude config folders (optional)",
+        "description": "One folder per line that holds a projects directory (e.g. ~/.claude). Empty = auto-detect.",
+        "type": "string",
+        "multiline": true,
+        "default": "",
+        "placeholder": "~/.claude"
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "agent:read" },
+    { "kind": "storage:own" },
+    { "kind": "settings:own" }
+  ]
+}

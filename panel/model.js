@@ -386,6 +386,33 @@
     }
   }
 
+  /**
+   * A string that changes only when something the panel renders changes: items, sessions, pins,
+   * scope and context, error. Ignores rev, lastIndexedAt and indexing (footer/header only).
+   */
+  function viewSignature(res) {
+    if (!res) return ''
+    var ctx = res.context || {}
+    var sessions = res.sessions || {}
+    return JSON.stringify([
+      res.scope || null,
+      res.error || null,
+      ctx.worktreePath || null,
+      ctx.worktreeName || null,
+      ctx.repoName || null,
+      (ctx.worktrees || []).map(function (w) { return [w.path, w.name, w.branch, !!w.current] }),
+      (res.pins || []).slice(),
+      (res.items || []).map(function (it) {
+        return [it.key, it.title, it.description || null, it.url, it.updatedAt, it.publishCount,
+          it.thumb || null, it.lastCwd, (it.sessionIds || []).join(','), (it.versions || []).length]
+      }),
+      Object.keys(sessions).sort().map(function (k) {
+        var s = sessions[k] || {}
+        return [k, s.title || null, s.lastAt, s.gitBranch || null, s.entrypoint || null]
+      })
+    ])
+  }
+
   /** Approximate decoded size of a base64 data URL. */
   function dataUrlBytes(url) {
     var i = String(url || '').indexOf(',')
@@ -452,7 +479,8 @@
     createThumbQueue: createThumbQueue,
     ioFallbackDue: ioFallbackDue,
     IO_FALLBACK_MS: IO_FALLBACK_MS,
-    dataUrlBytes: dataUrlBytes
+    dataUrlBytes: dataUrlBytes,
+    viewSignature: viewSignature
   }
   if (typeof module !== 'undefined') module.exports = AV.model
 })()

@@ -104,19 +104,58 @@
   /** Crop + cover/top-anchor a raw capture to 480x300 JPEG (q0.8, retry q0.6 above 200 KB). */
   function downscale(res) {
     return loadImage(res.dataUrl).then(function (img) {
-      var r = M.coverCropRect(img.naturalWidth, img.naturalHeight, res.crop, THUMB_W, THUMB_H)
-      var c = document.createElement('canvas')
-      c.width = THUMB_W
-      c.height = THUMB_H
-      var ctx = c.getContext('2d')
-      ctx.fillStyle = '#fff'
-      ctx.fillRect(0, 0, THUMB_W, THUMB_H)
-      ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, THUMB_W, THUMB_H)
-      var out = c.toDataURL('image/jpeg', 0.8)
-      if (M.dataUrlBytes(out) > 200 * 1024) out = c.toDataURL('image/jpeg', 0.6)
-      return out
+      var t0 = now()
+      try { return downscaleImage(img, res) } finally {
+        noteWork('downscale ' + img.naturalWidth + 'x' + img.naturalHeight, now() - t0)
+      }
     })
   }
+
+  function downscaleImage(img, res) {
+    var r = M.coverCropRect(img.naturalWidth, img.naturalHeight, res.crop, THUMB_W, THUMB_H)
+    var c = document.createElement('canvas')
+    c.width = THUMB_W
+    c.height = THUMB_H
+    var ctx = c.getContext('2d')
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, THUMB_W, THUMB_H)
+    ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, THUMB_W, THUMB_H)
+    var out = c.toDataURL('image/jpeg', 0.8)
+    if (M.dataUrlBytes(out) > 200 * 1024) out = c.toDataURL('image/jpeg', 0.6)
+    return out
+  }
+
+  // ---- responsiveness diagnostics ----
+  // Orca pings the panel every 10 s while it is visible and suspends it when a pong takes > 5 s.
+  // Log slow work and main-thread stalls (only while visible) so a suspension can be traced.
+  function now() { return (window.performance && performance.now) ? performance.now() : Date.now() }
+  var lastWork = 'start'
+  function noteWork(what, ms) {
+    lastWork = what + ' ' + Math.round(ms) + 'ms'
+    if (ms > 300) console.warn('[artifacts] slow ' + lastWork + diagContext())
+  }
+  function diagContext() {
+    var d = state.data
+    return ' (view=' + state.view + ', items=' + (d && d.items ? d.items.length : 0) +
+      ', thumbsInFlight=' + thumbQ.inFlight() + ', visible=' + document.visibilityState + ')'
+  }
+  ;(function watchStalls() {
+    var last = now()
+    var wasVisible = !document.hidden
+    setInterval(function () {
+      var t = now()
+      var lag = t - last - 1000
+      var visible = !document.hidden
+      if (lag > 1500 && visible && wasVisible) {
+        console.warn('[artifacts] main thread stalled ~' + Math.round(lag) + 'ms; last work: ' + lastWork + diagContext())
+      }
+      last = t
+      wasVisible = visible
+    }, 1000)
+    document.addEventListener('visibilitychange', function () {
+      lastWork = 'visibility ' + document.visibilityState + ' (after ' + lastWork + ')'
+    })
+  })()
 
   function wantThumb(key) {
     if (!api || !api.plugin) return
@@ -137,10 +176,20 @@
       if (res && Array.isArray(res.items) && Array.isArray(res.pins) && res.context) {
         var prevPath = state.data && state.data.context && state.data.context.worktreePath
         if (prevPath && prevPath !== res.context.worktreePath) state.selectedKey = null
+        // The worker re-announces the list whenever any transcript grows; skip the full
+        // re-render (and its visible blink) when nothing the panel shows has changed.
+        var sig = M.viewSignature(res)
+        var same = state.data && !state.requestError && sig === state.dataSig
         state.data = res
+        state.dataSig = sig
         updateScopeCounts(res)
         thumbQ.bumpList()
         state.requestError = ''
+        if (same) {
+          renderHeader()
+          renderFooter(lastFootShown)
+          return
+        }
       } else {
         state.data = null
         state.requestError = 'Unexpected response from the plugin worker'
@@ -576,7 +625,9 @@
     $('av-q-kbd').hidden = !!state.q
   }
 
+  var lastFootShown = null
   function renderFooter(shownCount) {
+    lastFootShown = shownCount
     var f = $('av-foot')
     var d = state.data
     if (!d || !d.context || !d.context.worktreePath) { f.hidden = true; return }
@@ -660,8 +711,10 @@
   }
 
   function render() {
+    var t0 = now()
     try {
       doRender()
+      noteWork('render ' + state.view, now() - t0)
     } catch (e) {
       var msg = (e && e.message) || String(e)
       var banner = $('av-banner')

@@ -369,3 +369,22 @@ test('syncStatus and plural', () => {
   assert.equal(M.plural(3, 'item'), '3 items')
   assert.equal(M.plural(2, 'publish', 'publishes'), '2 publishes')
 })
+
+test('viewSignature ignores rev/indexing/lastIndexedAt but tracks what the panel shows', () => {
+  const base = M.viewSignature(fx)
+  const clone = () => JSON.parse(JSON.stringify(fx))
+  const noise = clone()
+  noise.rev = fx.rev + 5
+  noise.indexing = !fx.indexing
+  noise.lastIndexedAt = (fx.lastIndexedAt || 0) + 60000
+  assert.equal(M.viewSignature(noise), base)
+
+  const thumb = clone(); thumb.items[0].thumb = 'r2'
+  const title = clone(); title.items[1].title = 'Renamed'
+  const pins = clone(); pins.pins = []
+  const sess = clone(); const sk = Object.keys(sess.sessions)[0]; sess.sessions[sk].title = 'Other'
+  const wt = clone(); wt.context.worktreePath = 'C:\other'
+  const added = clone(); added.items.push({ ...fx.items[0], key: 'claude:new' })
+  for (const changed of [thumb, title, pins, sess, wt, added]) assert.notEqual(M.viewSignature(changed), base)
+  assert.equal(M.viewSignature(null), '')
+})

@@ -280,13 +280,20 @@
   }
 
   /** Preview image over the placeholder; the placeholder stays when it fails to load. */
+  // Thumbnails already shown once skip the fade-in, so a re-render doesn't make them blink.
+  var shownThumbs = new Set()
   function thumbImg(url) {
     var img = document.createElement('img')
-    img.className = 'av-cards-img'
+    var seen = shownThumbs.has(url)
+    img.className = 'av-cards-img' + (seen ? ' is-on' : '')
     img.alt = ''
-    img.decoding = 'async'
+    img.decoding = seen ? 'sync' : 'async'
     img.draggable = false
-    img.addEventListener('load', function () { img.classList.add('is-on') })
+    img.addEventListener('load', function () {
+      img.classList.add('is-on')
+      if (shownThumbs.size > 500) shownThumbs.clear()
+      shownThumbs.add(url)
+    })
     img.addEventListener('error', function () { if (img.parentNode) img.parentNode.removeChild(img) })
     img.src = url
     return img

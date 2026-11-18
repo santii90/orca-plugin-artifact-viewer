@@ -13,6 +13,7 @@ globalThis.AV = {
     fullTime: (ms) => new Date(ms).toISOString(),
     hostOf: (u) => new URL(u).host,
     versionBadge: (it) => (it.publishCount > 1 ? 'v' + it.publishCount : ''),
+    dateBucket: (ms, now) => (now - ms < 86400000 ? 'today' : now - ms < 7 * 86400000 ? 'week' : 'older'),
     worktreeLabel: (cwd, wts) => {
       const w = (wts || []).find((x) => cwd.toLowerCase().startsWith(x.path.toLowerCase()))
       return w ? w.name : ''
@@ -158,4 +159,48 @@ test('sessions: collapsed state kept in module map, not applied to compact group
   if (multi) assert.equal(l.groups.find((g) => g.sessionId === multi.sessionId).collapsed, true)
   if (single) assert.equal(l.groups.find((g) => g.sessionId === single.sessionId).collapsed, false)
   sessions.collapsed.clear()
+})
+
+test('cards: pinned follow the pin order; covers pick a kind template', () => {
+  const two = [fixture.items[2].key, fixture.items[0].key]
+  const l = cards.layout(vm({ pins: new Set(two), pinOrder: two }))
+  assert.deepEqual(l.pinned.map((c) => c.key), two)
+  const all = [...l.pinned, ...l.cards]
+  for (const c of all) {
+    const allowed = c.kind === 'visual' ? ['bars', 'area', 'flow'] : ['frames', 'dash', 'timeline', 'doc']
+    assert.ok(allowed.includes(c.cover.template), c.cover.template)
+  }
+  // meta.source prefers the latest session title, falls back to the worktree
+  const first = all.find((c) => c.key === fixture.items[0].key)
+  const ids = fixture.items[0].sessionIds
+  assert.equal(first.meta.source, fixture.sessions[ids[ids.length - 1]].title)
+  const noSess = cards.layout(vm({ sessions: {} }))
+  assert.equal([...noSess.pinned, ...noSess.cards].find((c) => c.key === fixture.items[0].key).meta.source, 'roleplay-0.16')
+})
+
+test('sessions: every group has header data (bucket, current worktree, compact one-liners)', () => {
+  sessions.collapsed.clear()
+  const l = sessions.layout(vm())
+  for (const g of l.groups) {
+    assert.ok(['today', 'week', 'older'].includes(g.bucket))
+    assert.equal(typeof g.title, 'string')
+    assert.equal(typeof g.time, 'string')
+  }
+  const wt = l.groups.find((g) => g.sessionId === 's-wt-1')
+  assert.equal(wt.current, true) // its cwd is the focused worktree
+  const main = l.groups.find((g) => g.sessionId === 's-main-1')
+  if (main) assert.equal(main.current, false)
+})
+
+test('sessions: rows carry pin, file and version count; history is numbered newest first', () => {
+  const key = 'claude:Cnv4sDemoSlug0000000001'
+  const l = sessions.layout(vm({ selectedKey: key }))
+  const wt = l.groups.find((g) => g.sessionId === 's-wt-1')
+  const row = wt.rows.find((r) => r.key === key)
+  assert.equal(row.pinned, true)
+  assert.equal(row.versionCount, 4)
+  assert.deepEqual(row.history.map((h) => h.n), [4, 3, 2, 1])
+  const vis = wt.rows.find((r) => r.kind === 'visual')
+  assert.equal(vis.file, 'latency-by-region-7c1e.html')
+  assert.equal(vis.pinned, false)
 })

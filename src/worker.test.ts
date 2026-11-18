@@ -188,6 +188,23 @@ test('open builds the exact CLI args for the focused worktree', async () => {
   await worker.deactivate()
 })
 
+test('open focuses the created tab; a failed focus still counts as opened', async () => {
+  const ok = await setup({ runCli: async (args) => (args[1] === 'create' ? { browserPageId: 'page-3' } : { switched: 1 }) })
+  assert.deepEqual(await ok.worker.request('artifacts.open', { key: 'visual:c/x.html' }), { ok: true })
+  assert.deepEqual(ok.cliCalls.map((c) => c.args.slice(0, 2).join(' ')), ['tab create', 'tab switch'])
+  assert.deepEqual(ok.cliCalls[1].args, ['tab', 'switch', '--page', 'page-3', '--worktree', 'path:C:/dev/app', '--focus'])
+  await ok.worker.deactivate()
+
+  const bad = await setup({
+    runCli: async (args) => {
+      if (args[1] === 'create') return { browserPageId: 'page-4' }
+      throw new CliError('cli_failed', 'no such tab')
+    }
+  })
+  assert.deepEqual(await bad.worker.request('artifacts.open', { key: 'visual:c/x.html' }), { ok: true })
+  await bad.worker.deactivate()
+})
+
 test('open passes CLI error messages through as reasons', async () => {
   const hint = 'Orca CLI not found. Set its path in the plugin settings ("Orca CLI path").'
   const missing = await setup({ runCli: async () => { throw new CliError('cli_not_found', hint) } })
@@ -559,7 +576,7 @@ test('refresh full clears stored thumbs; visualPreviews=false disables thumbs an
   const off = await setup({ settings: { visualPreviews: 'false' }, runCli: async (a) => (cliCalls.push(a), captureCli()(a)) })
   await off.worker.request('artifacts.open', { key: 'claude:a' })
   await sleep(40) // negative assertion: settle time for a capture that must not start
-  assert.deepEqual(cliCalls.map((c) => c[0]), ['tab'])
+  assert.deepEqual(cliCalls.map((c) => `${c[0]} ${c[1]}`), ['tab create', 'tab switch'])
   assert.equal((await off.worker.request('artifacts.thumb', { key: 'visual:c/x.html' })).kind, 'none')
   await off.worker.deactivate()
 })

@@ -19,7 +19,10 @@
     loading: true,
     requestError: '',
     selectedKey: null,
-    refreshing: false
+    refreshing: false,
+    // last known item count per scope, for the scope toggle; reset when the worktree changes
+    scopeCounts: { repo: null, worktree: null },
+    countsFor: null
   }
 
   try {
@@ -135,6 +138,7 @@
         var prevPath = state.data && state.data.context && state.data.context.worktreePath
         if (prevPath && prevPath !== res.context.worktreePath) state.selectedKey = null
         state.data = res
+        updateScopeCounts(res)
         thumbQ.bumpList()
         state.requestError = ''
       } else {
@@ -149,6 +153,21 @@
       state.requestError = 'Could not load artifacts' + (err && (err.message || err.code) ? ': ' + (err.message || err.code) : '.')
       render()
     })
+  }
+
+  function updateScopeCounts(res) {
+    var wp = res.context.worktreePath
+    if (state.countsFor !== wp) {
+      state.countsFor = wp
+      state.scopeCounts = { repo: null, worktree: null }
+    }
+    if (!wp) return
+    if (res.scope === 'repo') {
+      state.scopeCounts.repo = res.items.length
+      state.scopeCounts.worktree = M.countInWorktree(res.items, res.sessions, wp)
+    } else if (res.scope === 'worktree') {
+      state.scopeCounts.worktree = res.items.length
+    }
   }
 
   var changedTimer
@@ -303,6 +322,47 @@
     }
   }
 
+  /** claude.ai/artifact/9c41e7a2…f03d */
+  function menuUrl(url) {
+    var u = String(url || '').replace(/^https?:\/\//, '')
+    return u.length > 34 ? u.slice(0, 26) + '\u2026' + u.slice(-4) : u
+  }
+
+  function canExternal(it) {
+    return !!(it && it.kind === 'claude' && canOpenExternal && M.isClaudeArtifactUrl(it.url))
+  }
+
+  /** Row/card keyboard shortcuts shared by the views (plain Enter is handled by each view). */
+  function rowKeydown(e, key, anchor) {
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault()
+      openMenu(key, anchor)
+      return true
+    }
+    if (e.key === 'Enter' && e.shiftKey) {
+      var it = itemByKey(key)
+      if (canExternal(it)) {
+        e.preventDefault()
+        openExternal(key)
+        return true
+      }
+      return false
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+      var sel = window.getSelection && window.getSelection()
+      if (sel && String(sel).length) return false
+      e.preventDefault()
+      copy(key)
+      return true
+    }
+    if ((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault()
+      pin(key, !(state.data && state.data.pins.indexOf(key) >= 0))
+      return true
+    }
+    return false
+  }
+
   function openMenu(key, anchor) {
     var it = itemByKey(key)
     if (!it) return
@@ -312,18 +372,32 @@
     var pinned = state.data.pins.indexOf(key) >= 0
     var m = el('div', 'av-menu')
     m.setAttribute('role', 'menu')
-    var head = it.kind === 'claude' ? M.hostOf(it.url) + '/…' + it.url.slice(-8) : M.fileName(it.filePath)
-    m.appendChild(el('div', 'av-menu-head', head))
-    var defs = [{ icon: 'browser', label: 'Open in Orca', run: function () { open(key) } }]
-    if (it.kind === 'claude' && canOpenExternal && M.isClaudeArtifactUrl(it.url)) defs.push({ icon: 'external', label: 'Open in browser', run: function () { openExternal(key) } })
-    defs.push({ icon: 'copy', label: it.kind === 'claude' ? 'Copy link' : 'Copy path', run: function () { copy(key) } })
-    defs.push({ icon: 'pin', label: pinned ? 'Unpin' : 'Pin', run: function () { pin(key, !pinned) } })
+    var head = it.kind === 'claude' ? menuUrl(it.url) : M.fileName(it.filePath)
+    var mh = el('div', 'av-menu-head', head)
+    mh.title = it.kind === 'claude' ? it.url : (it.filePath || '')
+    m.appendChild(mh)
+    var defs = [{ icon: 'browser', label: 'Open in Orca browser', kbd: '\u21b5', run: function () { open(key) } }]
+    if (canExternal(it)) defs.push({ icon: 'external', label: 'Open in external browser', kbd: 'Shift \u21b5', run: function () { openExternal(key) } })
+    defs.push({ icon: 'copy', label: it.kind === 'claude' ? 'Copy link' : 'Copy file path', kbd: 'Ctrl C', run: function () { copy(key) } })
+    defs.push('sep')
+    defs.push({ icon: 'pin', label: pinned ? 'Unpin' : 'Pin to top', kbd: 'P', run: function () { pin(key, !pinned) } })
     defs.forEach(function (d) {
+      if (d === 'sep') {
+        var sp = el('div', 'av-menu-sep')
+        sp.setAttribute('role', 'separator')
+        m.appendChild(sp)
+        return
+      }
       var b = el('button', 'av-menu-item')
       b.type = 'button'
       b.setAttribute('role', 'menuitem')
       b.appendChild(AV.icon(d.icon))
       b.appendChild(el('span', null, d.label))
+      if (d.kbd) {
+        var k = el('kbd', null, d.kbd)
+        k.setAttribute('aria-hidden', 'true')
+        b.appendChild(k)
+      }
       b.addEventListener('click', function () {
         closeMenu(false)
         d.run()
@@ -345,6 +419,14 @@
     m.style.left = left + 'px'
     m.style.top = top + 'px'
     m.querySelector('.av-menu-item').focus()
+    m.addEventListener('keydown', function (e) {
+      // the shortcut shown next to Pin also works while the menu is open
+      if ((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        closeMenu(true)
+        pin(key, !pinned)
+      }
+    })
   }
 
   document.addEventListener('pointerdown', function (e) {
@@ -383,6 +465,7 @@
     pin: pin,
     select: select,
     menu: openMenu,
+    keydown: rowKeydown,
     wantThumb: wantThumb
   }
 
@@ -398,7 +481,10 @@
       if (iconOnly) {
         b.setAttribute('aria-label', o.label)
         b.appendChild(AV.icon(o.id))
-      } else b.textContent = o.label
+      } else {
+        b.appendChild(el('span', null, o.label))
+        if (o.count != null) b.appendChild(el('span', 'av-n', String(o.count)))
+      }
       b.addEventListener('click', function () { if (o.id !== current) onPick(o.id) })
       container.appendChild(b)
     })
@@ -424,7 +510,7 @@
       b.appendChild(d)
     }
     if (icon) b.appendChild(AV.icon(icon, 'sm'))
-    b.appendChild(el('span', null, label))
+    if (label) b.appendChild(el('span', null, label))
     if (count != null) b.appendChild(el('span', 'av-n', String(count)))
     b.addEventListener('click', onClick)
     return b
@@ -457,16 +543,9 @@
     }
 
     seg($('av-scope'), [
-      { id: 'repo', label: 'This repo' },
-      { id: 'worktree', label: 'This worktree' }
-    ], state.scope, function (id) {
-      state.scope = id
-      state.selectedKey = null
-      persist()
-      state.loading = !state.data
-      load()
-      renderHeader()
-    })
+      { id: 'repo', label: 'This repo', count: state.scopeCounts.repo },
+      { id: 'worktree', label: 'This worktree', count: state.scopeCounts.worktree }
+    ], state.scope, setScope)
 
     var cnt = counts()
     var k = $('av-kinds')
@@ -475,52 +554,101 @@
     k.appendChild(chip('All', state.kind === 'all', state.data ? cnt.all : null, null, setKind('all')))
     k.appendChild(chip('Artifacts', state.kind === 'claude', state.data ? cnt.claude : null, 'av-kind-claude', setKind('claude')))
     k.appendChild(chip('Visuals', state.kind === 'visual', state.data ? cnt.visual : null, 'av-kind-visual', setKind('visual')))
-    k.appendChild(chip('Pinned', state.pinsOnly, null, null, function () { state.pinsOnly = !state.pinsOnly; render() }, 'pin'))
+    var pc = chip('', state.pinsOnly, null, null, function () { state.pinsOnly = !state.pinsOnly; render() }, 'pin')
+    pc.classList.add('av-chip-icon')
+    pc.title = state.pinsOnly ? 'Showing pinned only' : 'Show pinned only'
+    pc.setAttribute('aria-label', 'Pinned only')
+    k.appendChild(pc)
 
     var gb = $('av-groupby')
     gb.hidden = state.view !== 'list'
     if (!gb.hidden) {
-      seg(gb, [{ id: 'date', label: 'Date' }, { id: 'session', label: 'Session' }], state.groupBy, function (id) {
-        state.groupBy = id
-        persist()
-        render()
-      })
-      gb.title = 'Group by'
+      var cur = state.groupBy === 'session' ? 'Session' : 'Date'
+      var nxt = state.groupBy === 'session' ? 'date' : 'session'
+      gb.textContent = ''
+      gb.appendChild(el('span', null, 'Group'))
+      gb.appendChild(el('b', null, cur))
+      gb.appendChild(AV.icon('chevron', 'sm'))
+      gb.title = 'Grouped by ' + cur.toLowerCase() + ' \u2014 click to group by ' + nxt
+      gb.setAttribute('aria-label', 'Group by ' + cur.toLowerCase() + '. Activate to group by ' + nxt)
     }
     $('av-q-clear').hidden = !state.q
+    $('av-q-kbd').hidden = !!state.q
+  }
+
+  function renderFooter(shownCount) {
+    var f = $('av-foot')
+    var d = state.data
+    if (!d || !d.context || !d.context.worktreePath) { f.hidden = true; return }
+    f.hidden = false
+    var st = M.syncStatus({ indexing: d.indexing || state.refreshing, lastIndexedAt: d.lastIndexedAt, error: state.requestError, now: Date.now() })
+    f.classList.toggle('is-busy', st.tone === 'busy')
+    f.classList.toggle('is-err', st.tone === 'err')
+    var sync = $('av-foot-sync')
+    sync.textContent = st.text
+    sync.title = d.lastIndexedAt ? 'Last indexed ' + M.fullTime(d.lastIndexedAt) : ''
+    var total = (d.items || []).length
+    $('av-foot-n').textContent = shownCount != null && shownCount !== total ? shownCount + ' of ' + M.plural(total, 'item') : M.plural(total, 'item')
   }
 
   // ---- main render ----
-  function empty(iconName, title, text, btn) {
+  /** btns: [{ label, run, primary?, icon? }]. */
+  function empty(iconName, title, text, btns) {
     var d = el('div', 'av-empty')
     var ring = el('div', 'av-empty-ring')
     ring.appendChild(AV.icon(iconName, 'lg'))
     d.appendChild(ring)
     d.appendChild(el('h3', null, title))
     d.appendChild(el('p', null, text))
-    if (btn) {
-      var b = el('button', 'av-btn', btn.label)
-      b.type = 'button'
-      b.addEventListener('click', btn.run)
-      d.appendChild(b)
+    btns = btns || []
+    if (btns.length) {
+      var acts = el('div', 'av-empty-acts')
+      btns.forEach(function (btn) {
+        var b = el('button', 'av-btn' + (btn.primary ? ' av-btn-pri' : ''))
+        b.type = 'button'
+        if (btn.icon) b.appendChild(AV.icon(btn.icon, 'sm'))
+        b.appendChild(document.createTextNode(btn.label))
+        b.addEventListener('click', btn.run)
+        acts.appendChild(b)
+      })
+      d.appendChild(acts)
     }
     return d
   }
 
   function skeleton() {
-    var wrap = el('div')
+    var wrap = el('div', 'av-skel-wrap')
     wrap.setAttribute('aria-busy', 'true')
-    var widths = [70, 55, 82, 48, 64, 76]
-    widths.forEach(function (w) {
-      var r = el('div', 'av-skel')
-      r.appendChild(el('i'))
-      var bar = el('i')
-      bar.style.maxWidth = w + '%'
+    wrap.setAttribute('aria-label', 'Loading artifacts')
+    var rows = [null, 180, 130, 210, null, 150, 190, 120]
+    rows.forEach(function (w) {
+      var r = el('div', 'av-skel' + (w == null ? ' av-skel-head' : ''))
+      if (w == null) {
+        r.appendChild(el('i'))
+        wrap.appendChild(r)
+        return
+      }
+      r.appendChild(el('i', 'av-sk-kind'))
+      var bar = el('i', 'av-sk-text')
+      bar.style.maxWidth = w + 'px'
       r.appendChild(bar)
+      r.appendChild(el('i', 'av-sk-time'))
       wrap.appendChild(r)
     })
     return wrap
   }
+
+  function setScope(id) {
+    if (state.scope === id) return
+    state.scope = id
+    state.selectedKey = null
+    persist()
+    state.loading = !state.data
+    load()
+    renderHeader()
+  }
+
+  var refreshBtn = { label: 'Refresh', icon: 'refresh', run: function () { refresh() } }
 
   function clearFilters() {
     state.q = ''
@@ -563,36 +691,53 @@
     var scroll = $('av-scroll')
     var top = scroll.scrollTop
     var focusedKey = null
+    var focusedCls = null
     var ae = document.activeElement
     if (ae && ae !== document.body && $('av-root').contains(ae)) {
       var host = ae.closest('[data-key]')
-      if (host) focusedKey = host.getAttribute('data-key')
+      if (host) {
+        focusedKey = host.getAttribute('data-key')
+        // The same key can appear on several elements (e.g. a pinned pill and its row): remember which.
+        focusedCls = host.classList[0] || null
+      }
     }
     var root = $('av-root')
     root.textContent = ''
 
     var ps = M.panelState({ data: data, requestError: state.requestError, loading: state.loading, query: state.q, kind: state.kind, pinsOnly: state.pinsOnly })
+    renderFooter(null)
     if (ps.state === 'skeleton') { root.appendChild(skeleton()); return }
     if (ps.state === 'error') {
-      if (!state.requestError) root.appendChild(empty('artifact', 'Nothing to show', ps.message))
+      if (!state.requestError) root.appendChild(empty('alert', 'Nothing to show', ps.message, [refreshBtn]))
       return
     }
     if (ps.state === 'no-workspace') { root.appendChild(empty('branch', 'No workspace', ps.message)); return }
     if (ps.state === 'empty-index') {
-      root.appendChild(empty('artifact', 'No artifacts yet',
-        'This lists claude.ai Artifacts Claude published and HTML visuals it showed in Orca chats, from sessions in this ' + (state.scope === 'repo' ? 'repo.' : 'worktree.')))
+      var ctx = data.context || {}
+      if (state.scope === 'worktree') {
+        root.appendChild(empty('sparkles', 'Nothing generated in ' + (ctx.worktreeName || 'this worktree') + ' yet',
+          'Artifacts and inline visuals Claude creates in this worktree\u2019s chats show up here.',
+          [{ label: 'Show the whole repo', primary: true, run: function () { setScope('repo') } }, refreshBtn]))
+      } else {
+        root.appendChild(empty('sparkles', 'Nothing generated in ' + (ctx.repoName || 'this repo') + ' yet',
+          'claude.ai Artifacts Claude publishes and HTML visuals it shows in Orca chats, in any worktree of this repo, show up here.',
+          [refreshBtn]))
+      }
       return
     }
     if (ps.state === 'no-results') {
-      root.appendChild(empty('search', 'No matches', 'Nothing fits the current search and filters.', { label: 'Clear filters', run: clearFilters }))
+      root.appendChild(empty('search', 'No matches', 'Nothing fits the current search and filters.', [{ label: 'Clear filters', primary: true, run: clearFilters }]))
+      renderFooter(0)
       return
     }
     var items = M.filterItems(data.items, { q: state.q, kind: state.kind, pinsOnly: state.pinsOnly }, data.pins)
+    renderFooter(items.length)
     var view = AV.views[state.view]
     var vm = {
       items: items,
       sessions: data.sessions || {},
       pins: new Set(data.pins || []),
+      pinOrder: (data.pins || []).slice(),
       context: data.context,
       scope: state.scope,
       now: Date.now(),
@@ -613,12 +758,17 @@
     scroll.scrollTop = top
     if (focusedKey) {
       var cand = root.querySelectorAll('[data-key]')
+      var firstMatch = null
+      var target = null
       for (var i = 0; i < cand.length; i++) {
-        if (cand[i].getAttribute('data-key') === focusedKey && /^(BUTTON|A)$/.test(cand[i].tagName)) {
-          cand[i].focus({ preventScroll: true })
-          break
-        }
+        var c = cand[i]
+        if (c.getAttribute('data-key') !== focusedKey) continue
+        if (!(c.tabIndex >= 0 || /^(BUTTON|A)$/.test(c.tagName))) continue
+        if (!firstMatch) firstMatch = c
+        if (focusedCls && c.classList.contains(focusedCls)) { target = c; break }
       }
+      target = target || firstMatch
+      if (target) target.focus({ preventScroll: true })
     }
   }
 
@@ -627,6 +777,11 @@
   $('av-search-icon').appendChild(AV.icon('search'))
   $('av-q-clear').appendChild(AV.icon('x', 'sm'))
   $('av-refresh').addEventListener('click', refresh)
+  $('av-groupby').addEventListener('click', function () {
+    state.groupBy = state.groupBy === 'session' ? 'date' : 'session'
+    persist()
+    render()
+  })
   var qTimer
   $('av-q').addEventListener('input', function (e) {
     state.q = e.target.value

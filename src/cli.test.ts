@@ -1,5 +1,5 @@
 import { test, assert } from 'orca/testing'
-import { CliError, createCliRunner, evalArgs, extractEvalObject, extractPageId, extractScreenshotPath, findCli, resolveCli, screenshotArgs, tabCreateArgs, waitFnArgs, waitLoadArgs } from './cli.ts'
+import { CliError, createCliRunner, evalArgs, extractEvalObject, extractPageId, extractScreenshotPath, findCli, resolveCli, screenshotArgs, tabCreateArgs, tabFocusArgs, waitFnArgs, waitLoadArgs } from './cli.ts'
 import { cacheFilePath, claudeDirs, projectsDirs, projectsDirsReport, type PathsEnv } from './paths.ts'
 
 const winExe = 'C:\\Users\\u\\AppData\\Local\\Programs\\orca\\resources\\bin\\orca.exe'
@@ -19,6 +19,12 @@ test('findCli: override wins, then known location, then PATH', () => {
   )
   assert.equal(findCli('', finderEnv('linux', ['/opt/bin/orca'], '/usr/bin:/opt/bin')), '/opt/bin/orca')
   assert.equal(findCli('', finderEnv('linux', [])), null)
+})
+
+test('tabFocusArgs builds exact args and validates', () => {
+  assert.deepEqual(tabFocusArgs('e4a0490f-76b7', 'C:/dev/app'), ['tab', 'switch', '--page', 'e4a0490f-76b7', '--worktree', 'path:C:/dev/app', '--focus'])
+  assert.throws(() => tabFocusArgs('a b', 'C:/dev/app'), /page id/)
+  assert.throws(() => tabFocusArgs('p1', 'relative'), /absolute/)
 })
 
 test('tabCreateArgs builds exact args and validates', () => {

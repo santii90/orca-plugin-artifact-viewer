@@ -1,7 +1,7 @@
 import type { OrcaWorkerApi } from 'orca/worker'
 import type { Item, ListContext, ListResponse, OpenResult, Scope, SessionRef, ThumbResult } from './types.ts'
 import { resolveScope } from './scope.ts'
-import { CliError, createCliRunner, defaultFinderEnv, extractPageId, resolveCli, tabCreateArgs } from './cli.ts'
+import { CliError, createCliRunner, defaultFinderEnv, extractPageId, resolveCli, tabCreateArgs, tabFocusArgs } from './cli.ts'
 import { createThumbManager, type CaptureIo, type ProcDeps, type ThumbManager } from './thumbs.ts'
 import { cacheFilePath, defaultPathsEnv, findBrowser, projectsDirsReport, thumbsDir, type PathsEnv, type ProjectsDirsReport } from './paths.ts'
 
@@ -340,11 +340,19 @@ export function createWorker(deps: WorkerDeps): {
     }
     try {
       const created = await deps.runCli(tabCreateArgs(item.url, worktreePath), cfg.openTimeoutMs, settings.cliPath)
-      if (item.kind === 'claude' && thumbs) {
-        const pageId = extractPageId(created)
-        if (pageId) thumbs.captureOpened(pageId, { ...item })
-        else orca.log(`thumb ${item.key}: tab create returned no page id (output: ${snippet(created)})`)
+      const pageId = extractPageId(created)
+      if (pageId) {
+        // `tab create` opens the tab without showing it; bring it to the front. The tab is already
+        // open, so a failed focus is logged, not reported as a failed open.
+        try {
+          await deps.runCli(tabFocusArgs(pageId, worktreePath), cfg.openTimeoutMs, settings.cliPath)
+        } catch (e) {
+          orca.log(`open: could not focus tab ${pageId}: ${errMsg(e)}`)
+        }
+      } else {
+        orca.log(`open ${item.key}: tab create returned no page id (output: ${snippet(created)})`)
       }
+      if (item.kind === 'claude' && thumbs && pageId) thumbs.captureOpened(pageId, { ...item })
       return { ok: true }
     } catch (e) {
       orca.log(`open failed: ${errMsg(e)}`)

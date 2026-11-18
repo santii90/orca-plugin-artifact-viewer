@@ -334,3 +334,38 @@ test('ioFallbackDue: only when no observer callback fired and still mounted', ()
   assert.equal(M.ioFallbackDue(false, false), false)
   assert.equal(M.IO_FALLBACK_MS, 1500)
 })
+
+test('dateBucket: today / 6 days before / older, same boundaries as groupByDate', () => {
+  const now = new Date(2026, 10, 18, 15, 0, 0).getTime()
+  const startToday = new Date(2026, 10, 18).getTime()
+  const startWeek = new Date(2026, 10, 12).getTime()
+  assert.equal(M.dateBucket(startToday, now), 'today')
+  assert.equal(M.dateBucket(startToday - 1, now), 'week')
+  assert.equal(M.dateBucket(startWeek, now), 'week')
+  assert.equal(M.dateBucket(startWeek - 1, now), 'older')
+})
+
+test('countInWorktree: latest cwd or any session cwd inside the worktree, case/slash-insensitive', () => {
+  assert.equal(M.countInWorktree(items, fx.sessions, fx.context.worktreePath), 2)
+  assert.equal(M.countInWorktree(items, fx.sessions, fx.context.worktreePath.toUpperCase().split(String.fromCharCode(92)).join('/') + '/'), 2)
+  // the main checkout must not count the sibling worktree folder, only its own subfolders
+  assert.equal(M.countInWorktree(items, fx.sessions, String.raw`C:\Users\dev\Development\roleplay-journal`), 3)
+  // a session cwd inside the worktree counts even when the latest publish was elsewhere
+  const moved = [{ key: 'x', lastCwd: String.raw`D:\elsewhere`, sessionIds: ['s-wt-1'] }]
+  assert.equal(M.countInWorktree(moved, fx.sessions, fx.context.worktreePath), 1)
+  assert.equal(M.countInWorktree(items, fx.sessions, null), 0)
+  assert.equal(M.countInWorktree(null, null, 'C:/x'), 0)
+})
+
+test('syncStatus and plural', () => {
+  const now = 1795000000000
+  assert.deepEqual(M.syncStatus({ lastIndexedAt: now - 120000, now }), { text: 'Synced 2m ago', tone: 'ok' })
+  assert.deepEqual(M.syncStatus({ lastIndexedAt: now - 1000, now }), { text: 'Synced just now', tone: 'ok' })
+  assert.match(M.syncStatus({ lastIndexedAt: now - 30 * 86400000, now }).text, /^Synced [A-Z][a-z]{2} \d+/)
+  assert.equal(M.syncStatus({ indexing: true, lastIndexedAt: now, now }).tone, 'busy')
+  assert.equal(M.syncStatus({ lastIndexedAt: null, now }).tone, 'busy')
+  assert.equal(M.syncStatus({ error: 'boom', lastIndexedAt: now, now }).tone, 'err')
+  assert.equal(M.plural(1, 'item'), '1 item')
+  assert.equal(M.plural(3, 'item'), '3 items')
+  assert.equal(M.plural(2, 'publish', 'publishes'), '2 publishes')
+})

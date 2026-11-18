@@ -1,8 +1,10 @@
-/* List view: dense rows grouped by date or session. All DOM via createElement/textContent. */
+/* List view (mock 1): dense rows in collapsible date or session groups. All DOM via createElement/textContent. */
 ;(function () {
   var AV = (window.AV = window.AV || {})
   AV.views = AV.views || {}
   var M = AV.model
+  // group id -> true when collapsed. Survives re-renders.
+  var collapsed = new Map()
 
   function el(tag, cls, text) {
     var n = document.createElement(tag)
@@ -29,10 +31,26 @@
     return (s && s.title) || (id ? 'Session ' + id.slice(0, 8) : 'Unknown session')
   }
 
-  function fact(dl, label, value, mono) {
-    if (!value) return
-    dl.appendChild(el('dt', null, label))
-    dl.appendChild(el('dd', mono ? 'av-mono' : null, value))
+  var ENTRY = { orca: 'in Orca', cli: 'CLI', 'claude-desktop': 'Desktop', 'sdk-cli': 'SDK' }
+
+  /** Second line of the selected row: session · source, then file name / host and branch. */
+  function buildSub(item, vm) {
+    var sub = el('span', 'av-list-sub')
+    var ids = item.sessionIds || []
+    var lastId = ids[ids.length - 1]
+    var ls = lastId && vm.sessions && vm.sessions[lastId]
+    if (lastId) {
+      var sess = el('span', 'av-list-sess')
+      sess.appendChild(AV.icon('message', 'sm'))
+      sess.appendChild(el('span', null, sessionTitle(vm, lastId)))
+      if (ids.length > 1) sess.title = ids.map(function (id) { return sessionTitle(vm, id) }).join('\n')
+      sub.appendChild(sess)
+    }
+    var src = ls && ls.entrypoint ? ENTRY[ls.entrypoint] || ls.entrypoint : ''
+    sub.appendChild(el('span', null, '· Claude' + (src ? ' ' + src : '')))
+    sub.appendChild(el('code', null, item.kind === 'claude' ? M.hostOf(item.url) : M.fileName(item.filePath)))
+    if (ls && ls.gitBranch) sub.appendChild(el('code', null, ls.gitBranch))
+    return sub
   }
 
   function buildDetail(item, vm, actions) {
@@ -49,31 +67,25 @@
       d.appendChild(img)
     }
     if (item.description) d.appendChild(el('div', 'av-list-desc', item.description))
-    var dl = el('dl', 'av-list-facts')
-    var titles = (item.sessionIds || []).map(function (id) { return sessionTitle(vm, id) })
-    fact(dl, titles.length > 1 ? 'Sessions' : 'Session', titles.join(', '))
-    var lastId = (item.sessionIds || [])[(item.sessionIds || []).length - 1]
-    var ls = lastId && vm.sessions && vm.sessions[lastId]
-    fact(dl, 'Branch', ls && ls.gitBranch, true)
-    fact(dl, 'Updated', M.fullTime(item.updatedAt))
-    if (item.kind === 'claude') fact(dl, 'Host', M.hostOf(item.url), true)
-    else fact(dl, 'File', M.fileName(item.filePath), true)
-    d.appendChild(dl)
-    var vers = (item.versions || []).slice(-5)
+    var vers = (item.versions || []).slice(-4)
     if (vers.length > 1 || item.publishCount > 1) {
       var ul = el('ul', 'av-list-vers')
       ul.setAttribute('aria-label', 'Versions')
       var total = Math.max(item.publishCount || 0, vers.length)
       for (var i = vers.length - 1; i >= 0; i--) {
         var v = vers[i]
-        var li = el('li')
+        var li = el('li', i === vers.length - 1 ? 'is-cur' : null)
         li.appendChild(el('span', 'av-v', 'v' + (total - (vers.length - 1 - i))))
-        li.appendChild(el('span', 'av-t', M.relTime(v.at, vm.now)))
-        li.appendChild(el('span', null, v.action === 'create' ? 'created' : 'updated'))
+        var foreign = (item.sessionIds || []).length > 1 ? ' · ' + sessionTitle(vm, v.sessionId) : ''
+        li.appendChild(el('span', 'av-l', (v.action === 'create' ? 'Created' : 'Updated') + foreign))
+        var t = el('span', 'av-t', M.relTime(v.at, vm.now))
+        t.title = M.fullTime(v.at)
+        li.appendChild(t)
         ul.appendChild(li)
       }
       d.appendChild(ul)
     }
+    if (!d.firstChild) return null
     return d
   }
 
@@ -93,20 +105,23 @@
     kind.appendChild(AV.icon(item.kind === 'visual' ? 'visual' : 'artifact'))
     var body = el('span', 'av-list-body')
     body.appendChild(el('span', 'av-list-title', item.title))
-    var meta = el('span', 'av-list-meta')
-    if (vm.pins && vm.pins.has(key)) {
-      meta.appendChild(AV.icon('pin', 'sm'))
-    }
-    meta.appendChild(el('span', 'av-list-wt', M.worktreeLabel(item.lastCwd, vm.context && vm.context.worktrees)))
-    meta.appendChild(el('span', 'av-list-sep', '•'))
-    var t = el('span', null, M.relTime(item.updatedAt, vm.now))
-    t.title = M.fullTime(item.updatedAt)
-    meta.appendChild(t)
-    var vb = M.versionBadge(item)
-    if (vb) meta.appendChild(el('span', 'av-badge', vb))
-    body.appendChild(meta)
+    if (selected) body.appendChild(buildSub(item, vm))
     row.appendChild(kind)
     row.appendChild(body)
+    // pinned items already sit in the Pinned group when grouping by date
+    if (vm.pins && vm.pins.has(key) && vm.groupBy === 'session') {
+      var pm = AV.icon('pin', 'sm', 'av-icon-filled av-list-pin')
+      row.appendChild(pm)
+    }
+    var vb = M.versionBadge(item)
+    if (vb) {
+      var vbe = el('span', 'av-list-ver', vb)
+      vbe.title = M.plural(item.publishCount, 'publish', 'publishes')
+      row.appendChild(vbe)
+    }
+    var t = el('span', 'av-list-time', M.relTime(item.updatedAt, vm.now))
+    t.title = M.fullTime(item.updatedAt)
+    row.appendChild(t)
 
     row.addEventListener('click', function () {
       actions.select(key)
@@ -117,10 +132,8 @@
       actions.menu(key, row)
     })
     row.addEventListener('keydown', function (e) {
-      if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
-        e.preventDefault()
-        actions.menu(key, row)
-      } else if (e.key === 'Escape' && selected) {
+      if (actions.keydown && actions.keydown(e, key, row)) return
+      if (e.key === 'Escape' && selected) {
         actions.select(null)
       } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         var rows = Array.prototype.slice.call(wrap.closest('.av-list-root').querySelectorAll('.av-list-row'))
@@ -134,14 +147,17 @@
     wrap.appendChild(row)
 
     var acts = el('div', 'av-list-acts')
-    if (item.kind === 'claude' && vm.canOpenExternal) acts.appendChild(iconBtn('external', 'Open in browser', function () { actions.openExternal(key) }))
-    acts.appendChild(iconBtn('copy', item.kind === 'claude' ? 'Copy link' : 'Copy path', function () { actions.copy(key) }))
-    var more = iconBtn('more', 'More', function (b) { actions.menu(key, b) })
+    if (item.kind === 'claude' && vm.canOpenExternal) acts.appendChild(iconBtn('external', 'Open in external browser', function () { actions.openExternal(key) }))
+    acts.appendChild(iconBtn('copy', item.kind === 'claude' ? 'Copy link' : 'Copy file path', function () { actions.copy(key) }))
+    var more = iconBtn('more', 'More actions', function (b) { actions.menu(key, b) })
     more.setAttribute('aria-haspopup', 'menu')
     acts.appendChild(more)
     wrap.appendChild(acts)
 
-    if (selected) wrap.appendChild(buildDetail(item, vm, actions))
+    if (selected) {
+      var det = buildDetail(item, vm, actions)
+      if (det) wrap.appendChild(det)
+    }
     return wrap
   }
 
@@ -151,6 +167,7 @@
         var s = g.session
         return {
           id: 's:' + g.sessionId,
+          session: true,
           label: sessionTitle(vm, g.sessionId),
           sub: (s && s.gitBranch ? s.gitBranch + ' · ' : '') + M.relTime(g.lastAt, vm.now),
           items: g.items
@@ -163,21 +180,38 @@
   function render(root, vm, actions) {
     var list = el('div', 'av-list-root')
     list.setAttribute('role', 'list')
+    var rerender = function () {
+      root.textContent = ''
+      render(root, vm, actions)
+    }
     buildGroups(vm).forEach(function (g) {
       var sec = el('section', 'av-list-group')
-      var head = el('div', 'av-list-ghead')
-      if (g.id === 'pinned') head.appendChild(AV.icon('pin', 'sm'))
+      var isCollapsed = collapsed.get(g.id) === true
+      var head = el('button', 'av-list-ghead' + (g.session ? ' is-session' : ''))
+      head.type = 'button'
+      head.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true')
+      head.setAttribute('data-gid', g.id)
+      head.appendChild(AV.icon('chevron', 'sm', 'av-icon-chev'))
+      if (g.id === 'pinned') head.appendChild(AV.icon('pin', 'sm', 'av-icon-filled av-list-pin'))
       head.appendChild(el('span', 'av-list-gtitle', g.label))
       head.appendChild(el('span', 'av-n', String(g.items.length)))
       if (g.sub) head.appendChild(el('span', 'av-gsub', g.sub))
-      sec.appendChild(head)
-      g.items.forEach(function (item) {
-        sec.appendChild(buildItem(item, vm, actions))
+      head.addEventListener('click', function () {
+        collapsed.set(g.id, !isCollapsed)
+        rerender()
+        var heads = root.querySelectorAll('.av-list-ghead')
+        for (var i = 0; i < heads.length; i++) if (heads[i].getAttribute('data-gid') === g.id) heads[i].focus()
       })
+      sec.appendChild(head)
+      if (!isCollapsed) {
+        g.items.forEach(function (item) {
+          sec.appendChild(buildItem(item, vm, actions))
+        })
+      }
       list.appendChild(sec)
     })
     root.appendChild(list)
   }
 
-  AV.views.list = { id: 'list', label: 'List', render: render }
+  AV.views.list = { id: 'list', label: 'List', render: render, _collapsed: collapsed }
 })()

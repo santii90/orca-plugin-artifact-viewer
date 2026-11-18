@@ -72,13 +72,20 @@
     return b.updatedAt - a.updatedAt
   }
 
+  /** 'today' | 'week' (the 6 local days before today) | 'older' for a timestamp. */
+  function dateBucket(ms, now) {
+    now = now == null ? Date.now() : now
+    var d = new Date(now)
+    var startToday = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    var startWeek = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6).getTime()
+    return ms >= startToday ? 'today' : ms >= startWeek ? 'week' : 'older'
+  }
+  var BUCKET_INDEX = { today: 1, week: 2, older: 3 }
+
   /** Pinned items go to the first group (and are not repeated); `pins` is a Set or array of keys. */
   function groupByDate(items, now, pins) {
     now = now == null ? Date.now() : now
     var pinSet = toSet(pins)
-    var d = new Date(now)
-    var startToday = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-    var startWeek = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6).getTime()
     var groups = [
       { id: 'pinned', label: 'Pinned', items: [] },
       { id: 'today', label: 'Today', items: [] },
@@ -86,7 +93,7 @@
       { id: 'older', label: 'Older', items: [] }
     ]
     ;(items || []).slice().sort(byUpdatedDesc).forEach(function (it) {
-      var g = pinSet.has(it.key) ? 0 : it.updatedAt >= startToday ? 1 : it.updatedAt >= startWeek ? 2 : 3
+      var g = pinSet.has(it.key) ? 0 : BUCKET_INDEX[dateBucket(it.updatedAt, now)]
       groups[g].items.push(it)
     })
     return groups.filter(function (g) { return g.items.length > 0 })
@@ -157,6 +164,43 @@
 
   function versionBadge(item) {
     return item && item.publishCount > 1 ? 'v' + item.publishCount : ''
+  }
+
+  function isInside(p, root) {
+    var c = normPath(p)
+    var r = normPath(root)
+    return !!r && (c === r || c.indexOf(r + '/') === 0)
+  }
+
+  /**
+   * How many items have a publish cwd (latest cwd or any of their sessions' cwd) inside `worktreePath`.
+   * Mirrors the worker's 'worktree' scope closely enough to label the scope toggle from a 'repo' answer.
+   */
+  function countInWorktree(items, sessions, worktreePath) {
+    if (!worktreePath) return 0
+    sessions = sessions || {}
+    return (items || []).filter(function (it) {
+      if (isInside(it.lastCwd, worktreePath)) return true
+      return (it.sessionIds || []).some(function (id) {
+        var s = sessions[id]
+        return !!(s && isInside(s.cwd, worktreePath))
+      })
+    }).length
+  }
+
+  /** Footer status text: { text, tone: 'ok'|'busy'|'err' }. */
+  function syncStatus(o) {
+    o = o || {}
+    if (o.error) return { text: 'Not synced', tone: 'err' }
+    if (o.indexing) return { text: 'Indexing…', tone: 'busy' }
+    if (!o.lastIndexedAt) return { text: 'Not indexed yet', tone: 'busy' }
+    var t = relTime(o.lastIndexedAt, o.now)
+    return { text: t === 'now' ? 'Synced just now' : /^\d/.test(t) ? 'Synced ' + t + ' ago' : 'Synced ' + t, tone: 'ok' }
+  }
+
+  /** "1 item" / "3 items". */
+  function plural(n, one, many) {
+    return n + ' ' + (n === 1 ? one : many || one + 's')
   }
 
   /**
@@ -360,19 +404,24 @@
     refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
     list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
     cards: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
-    sessions: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    sessions: '<path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
     browser: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>',
     branch: '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
-    alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>'
+    alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+    sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+    message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    claude: '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/>',
+    history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>'
   }
 
-  function icon(name, size) {
+  function icon(name, size, extraClass) {
     var NS = 'http://www.w3.org/2000/svg'
     var svg = document.createElementNS(NS, 'svg')
     svg.setAttribute('viewBox', '0 0 24 24')
-    svg.setAttribute('class', 'av-icon' + (size ? ' av-icon-' + size : ''))
+    svg.setAttribute('class', 'av-icon' + (size ? ' av-icon-' + size : '') + (extraClass ? ' ' + extraClass : ''))
     svg.setAttribute('aria-hidden', 'true')
     svg.setAttribute('focusable', 'false')
     // Static, trusted markup from the table above (never data).
@@ -387,6 +436,10 @@
     panelState: panelState,
     groupByDate: groupByDate,
     groupBySession: groupBySession,
+    dateBucket: dateBucket,
+    countInWorktree: countInWorktree,
+    syncStatus: syncStatus,
+    plural: plural,
     relTime: relTime,
     fullTime: fullTime,
     kindLabel: kindLabel,

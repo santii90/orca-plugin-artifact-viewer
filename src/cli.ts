@@ -74,6 +74,17 @@ export function tabCreateArgs(url: string, worktreePath: string): string[] {
   return ['tab', 'create', '--url', url, '--worktree', `path:${worktreePath}`]
 }
 
+/** Args for `orca tab switch --focus`: brings a tab we just created to the front. */
+export function tabFocusArgs(pageId: string, worktreePath: string): string[] {
+  if (typeof pageId !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(pageId)) {
+    throw new CliError('invalid_args', 'Invalid browser page id')
+  }
+  if (typeof worktreePath !== 'string' || !(path.win32.isAbsolute(worktreePath) || path.posix.isAbsolute(worktreePath))) {
+    throw new CliError('invalid_args', 'Worktree path must be absolute')
+  }
+  return ['tab', 'switch', '--page', pageId, '--worktree', `path:${worktreePath}`, '--focus']
+}
+
 function childEnv(base: Record<string, string | undefined>, platform: string, home: string): NodeJS.ProcessEnv {
   const env = { ...base } as NodeJS.ProcessEnv
   if (platform === 'win32') {

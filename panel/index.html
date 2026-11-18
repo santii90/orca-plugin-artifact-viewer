@@ -14,20 +14,21 @@
         <div class="av-titlebar">
           <h1 class="av-title">Artifacts</h1>
           <span class="av-spacer"></span>
-          <div id="av-views" class="av-seg av-seg-icons" role="radiogroup" aria-label="View"></div>
+          <div id="av-views" class="av-tog" role="radiogroup" aria-label="View"></div>
           <button id="av-refresh" class="av-iconbtn" type="button" title="Refresh" aria-label="Refresh"></button>
         </div>
         <div id="av-ctx" class="av-ctx"></div>
         <div class="av-controls">
           <label class="av-search">
             <span id="av-search-icon" class="av-search-icon"></span>
-            <input id="av-q" type="text" placeholder="Search titles, files, links" aria-label="Search artifacts" autocomplete="off" spellcheck="false" />
-            <button id="av-q-clear" class="av-iconbtn av-iconbtn-sm" type="button" title="Clear search" aria-label="Clear search" hidden></button>
+            <input id="av-q" type="text" placeholder="Search titles, files, links…" aria-label="Search artifacts" autocomplete="off" spellcheck="false" />
+            <kbd id="av-q-kbd" aria-hidden="true">/</kbd>
+            <button id="av-q-clear" class="av-iconbtn av-iconbtn-xs" type="button" title="Clear search" aria-label="Clear search" hidden></button>
           </label>
           <div id="av-scope" class="av-seg" role="radiogroup" aria-label="Scope"></div>
           <div class="av-filterrow">
             <div id="av-kinds" class="av-chips" role="group" aria-label="Filter by kind"></div>
-            <div id="av-groupby" class="av-seg av-seg-sm" role="radiogroup" aria-label="Group by" hidden></div>
+            <button id="av-groupby" class="av-grp" type="button" hidden></button>
           </div>
         </div>
       </header>
@@ -35,6 +36,12 @@
       <main id="av-scroll" class="av-scroll">
         <div id="av-root" class="av-root"></div>
       </main>
+      <footer id="av-foot" class="av-foot" hidden>
+        <span id="av-foot-dot" class="av-foot-dot"></span>
+        <span id="av-foot-sync"></span>
+        <span class="av-spacer"></span>
+        <span id="av-foot-n"></span>
+      </footer>
       <div id="av-toast" class="av-toast" role="status" aria-live="polite" hidden></div>
     </div>
     <script src="model.js"></script>

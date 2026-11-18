@@ -10,6 +10,7 @@
   },
   "license": "MIT",
   "repository": "https://github.com/santii90/orca-plugin-artifact-viewer",
+  "icon": "images/icon.png",
   "cover": {
     "path": "images/cover.png",
     "alt": "Three Artifacts sidebar panels in Orca's dark theme: a List grouped by date, Cards with preview thumbnails, and Sessions with a timeline per Claude chat."
@@ -44,8 +45,12 @@
       }
     ],
     "events": [
-      { "on": "workspace.changed" },
-      { "on": "agent.status.changed" }
+      {
+        "on": "workspace.changed"
+      },
+      {
+        "on": "agent.status.changed"
+      }
     ],
     "settings": [
       {
@@ -81,9 +86,17 @@
     ]
   },
   "capabilities": [
-    { "kind": "workspace:read" },
-    { "kind": "agent:read" },
-    { "kind": "storage:own" },
-    { "kind": "settings:own" }
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "agent:read"
+    },
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "settings:own"
+    }
   ]
 }

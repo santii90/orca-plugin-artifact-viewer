@@ -29,6 +29,7 @@ if (manifest) {
   if (!/^>=\d+\.\d+\.\d+$/.test(manifest.engines?.orca ?? '')) fail('engines.orca must look like ">=x.y.z"')
   for (const img of [manifest.cover, ...(manifest.screenshots ?? [])].filter(Boolean)) {
     if (!img.alt) fail(`image ${img.path} needs an alt text`)
+    else if (img.alt.length > 160) fail(`alt text of ${img.path} is ${img.alt.length} characters (max 160)`)
   }
 }
 

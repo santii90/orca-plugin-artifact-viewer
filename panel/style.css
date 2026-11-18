@@ -1,13 +1,8 @@
 /* Artifacts panel: shell + shared classes + List view.
    Colors come from Orca's panel design tokens (--orca-*, injected into the frame) with fallbacks.
-   Orca exposes no font token: the UI font is Geist (bundled here, SIL OFL 1.1, see fonts/OFL.txt). */
-@font-face {
-  font-family: "Geist";
-  src: url("fonts/Geist-Variable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
+   Orca exposes no font token to plugin frames. Use the system UI font stack the approved mocks
+   rendered with (Orca chat visuals don't load Geist either): Segoe UI on Windows, San Francisco
+   on macOS, the desktop's UI font on Linux. */
 
 :root {
   color-scheme: dark;
@@ -40,7 +35,7 @@
   --av-line: color-mix(in oklab, var(--av-fg) 14%, transparent);
   --av-sel: color-mix(in oklab, var(--av-primary) 15%, transparent);
   --av-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, "Liberation Mono", monospace;
-  --av-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --av-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   /* legacy aliases used by the view stylesheets */
   --av-hover: var(--av-accent);
   --av-hover-fg: var(--av-accent-fg);

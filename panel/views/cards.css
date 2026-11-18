@@ -64,7 +64,7 @@ html.light .av-cards { --c-c3: #2563eb; --c-c5: #db2777; }
 /* meta row */
 .av-cards-meta { display: flex; gap: 4px; align-items: flex-start; padding: 7px 4px 8px 9px; }
 .av-cards-mt { flex: 1; min-width: 0; }
-.av-cards-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-cards-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .av-cards-cm { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 11px; color: var(--av-muted-fg); white-space: nowrap; overflow: hidden; }
 .av-cards-ver { flex: none; font: 10.5px var(--av-mono); padding: 0 4px; border-radius: 3px; background: color-mix(in oklab, var(--av-muted-fg) 14%, transparent); }
 .av-cards-time { flex: none; }

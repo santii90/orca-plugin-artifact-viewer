@@ -220,7 +220,7 @@ button.av-chip:hover { background: var(--av-accent); color: var(--av-accent-fg);
 .av-list-kind { width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; flex: none; }
 .av-list-kind .av-icon { width: 12px; height: 12px; }
 .av-list-body { flex: 1; min-width: 0; }
-.av-list-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.av-list-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
 .av-list-ver { flex: none; font: 10.5px/16px var(--av-mono); padding: 0 5px; border-radius: 4px; color: var(--av-muted-fg); background: color-mix(in oklab, var(--av-muted-fg) 14%, transparent); }
 .av-list-time { flex: none; min-width: 30px; text-align: right; font: 11px var(--av-mono); color: var(--av-muted-fg); white-space: nowrap; }
 .av-list-pin { flex: none; color: var(--av-pin); }

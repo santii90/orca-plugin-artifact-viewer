@@ -10,6 +10,17 @@
   },
   "license": "MIT",
   "repository": "https://github.com/santii90/orca-plugin-artifact-viewer",
+  "cover": {
+    "path": "images/cover.png",
+    "alt": "Three dark Orca sidebar panels from the Artifacts plugin, side by side under the headline 'Artifacts for Orca': a List view grouped by date, a Cards view with preview thumbnails, and a Sessions view showing the artifacts each Claude session made."
+  },
+  "screenshots": [
+    {
+      "path": "images/cover.png",
+      "alt": "The Artifacts panel in its three views: List grouped by date, Cards with previews and a pinned rail, and Sessions with a timeline per Claude chat.",
+      "caption": "List, Cards and Sessions views"
+    }
+  ],
   "engines": {
     "orca": ">=1.4.259"
   },

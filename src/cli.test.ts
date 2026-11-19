@@ -21,6 +21,12 @@ test('findCli: override wins, then known location, then PATH', () => {
   assert.equal(findCli('', finderEnv('linux', [])), null)
 })
 
+test('tabCreateArgs adds a validated --split', () => {
+  assert.deepEqual(tabCreateArgs('file:///C:/x/a.html', 'C:/dev/app', 'right').slice(-2), ['--split', 'right'])
+  assert.equal(tabCreateArgs('file:///C:/x/a.html', 'C:/dev/app').includes('--split'), false)
+  assert.throws(() => tabCreateArgs('file:///C:/x/a.html', 'C:/dev/app', 'sideways' as never), /split/)
+})
+
 test('tabFocusArgs builds exact args and validates', () => {
   assert.deepEqual(tabFocusArgs('e4a0490f-76b7', 'C:/dev/app'), ['tab', 'switch', '--page', 'e4a0490f-76b7', '--worktree', 'path:C:/dev/app', '--focus'])
   assert.throws(() => tabFocusArgs('a b', 'C:/dev/app'), /page id/)

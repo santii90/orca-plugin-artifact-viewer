@@ -287,7 +287,7 @@
     var seen = shownThumbs.has(url)
     img.className = 'av-cards-img' + (seen ? ' is-on' : '')
     img.alt = ''
-    img.decoding = seen ? 'sync' : 'async'
+    img.decoding = 'async'
     img.draggable = false
     img.addEventListener('load', function () {
       img.classList.add('is-on')

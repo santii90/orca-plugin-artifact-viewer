@@ -25,7 +25,7 @@ Needs Orca 1.4.259 or newer. Updates from the community catalog are installed fr
 
 ## How it works
 
-A trusted worker (`src/worker.ts`) indexes Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) incrementally and caches the index on disk (`%LOCALAPPDATA%\orca-artifacts` on Windows, `~/.cache/orca-artifacts` elsewhere). It reads only successful Artifact `publish` results and `::orca-visual` directives. Opening an item runs `orca tab create --url … --worktree path:…` and brings the new tab to the front. The panel (`panel/`) is plain HTML/JS talking to the worker through `plugin.request`; `src/protocol.ts` and `src/types.ts` define the contract.
+A trusted worker (`src/worker.ts`) indexes Claude Code transcripts (`~/.claude/projects/**/*.jsonl`) incrementally and caches the index on disk (`%LOCALAPPDATA%\orca-artifacts` on Windows, `~/.cache/orca-artifacts` elsewhere). It reads only successful Artifact `publish` results and `::orca-visual` directives. Clicking an item opens it beside the current pane (`orca tab create --url … --worktree path:… --split right`) and brings it to the front; **Open in new tab** in the item's menu (Alt+Enter) opens a regular tab instead. Orca shows its purple "agent is using this page" glow on tabs opened through its CLI for about 20 s; plugins can't turn it off. The panel (`panel/`) is plain HTML/JS talking to the worker through `plugin.request`; `src/protocol.ts` and `src/types.ts` define the contract.
 
 Access requested: read workspaces and agent status, own storage and settings.
 

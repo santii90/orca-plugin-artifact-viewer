@@ -1,5 +1,5 @@
 import type { OrcaWorkerApi } from 'orca/worker'
-import type { Item, ListContext, ListResponse, OpenResult, Scope, SessionRef, ThumbResult } from './types.ts'
+import type { Item, ListContext, ListResponse, OpenMode, OpenResult, Scope, SessionRef, ThumbResult } from './types.ts'
 import { resolveScope } from './scope.ts'
 import { CliError, createCliRunner, defaultFinderEnv, extractPageId, resolveCli, tabCreateArgs, tabFocusArgs } from './cli.ts'
 import { createThumbManager, type CaptureIo, type ProcDeps, type ThumbManager } from './thumbs.ts'
@@ -89,12 +89,12 @@ export function createWorker(deps: WorkerDeps): {
 
   const host = () => orca.host as unknown as Parameters<typeof resolveScope>[0]
 
+  const isOff = (v: unknown): boolean => v === false || (typeof v === 'string' && /^(false|off|no|0)$/i.test(v.trim()))
   function readSettings(raw: Record<string, unknown> | undefined): WorkerSettings {
-    const vp = raw?.visualPreviews
     return {
       cliPath: String(raw?.cliPath ?? ''),
       claudeDirs: String(raw?.claudeDirs ?? ''),
-      visualPreviews: !(vp === false || (typeof vp === 'string' && /^(false|off|no|0)$/i.test(vp.trim()))),
+      visualPreviews: !isOff(raw?.visualPreviews),
       browserPath: String(raw?.browserPath ?? '')
     }
   }
@@ -316,8 +316,9 @@ export function createWorker(deps: WorkerDeps): {
     return { started: startScan() }
   }
 
-  async function open(key: string): Promise<OpenResult> {
+  async function open(key: string, mode: OpenMode = 'tab'): Promise<OpenResult> {
     if (typeof key !== 'string' || !key) throw invalid('key is required')
+    if (mode !== 'tab' && mode !== 'beside') throw invalid('mode must be "tab" or "beside"')
     let resolved
     try {
       resolved = await resolveScope(host(), 'repo', (m) => orca.log(m))
@@ -339,7 +340,8 @@ export function createWorker(deps: WorkerDeps): {
       return { ok: false, reason: 'Refusing to open a URL that is not https://claude.ai/... or file:///...' }
     }
     try {
-      const created = await deps.runCli(tabCreateArgs(item.url, worktreePath), cfg.openTimeoutMs, settings.cliPath)
+      const split = mode === 'beside' ? 'right' : undefined
+      const created = await deps.runCli(tabCreateArgs(item.url, worktreePath, split), cfg.openTimeoutMs, settings.cliPath)
       const pageId = extractPageId(created)
       if (pageId) {
         // `tab create` opens the tab without showing it; bring it to the front. The tab is already
@@ -422,7 +424,10 @@ export function createWorker(deps: WorkerDeps): {
     disposables.push(
       orca.panels.handle('artifacts.list', (input) => list((input as { scope: Scope } | undefined)?.scope as Scope)),
       orca.panels.handle('artifacts.refresh', (input) => refresh(Boolean((input as { full?: boolean } | undefined)?.full))),
-      orca.panels.handle('artifacts.open', (input) => open((input as { key: string } | undefined)?.key as string)),
+      orca.panels.handle('artifacts.open', (input) => {
+        const i = (input ?? {}) as { key?: string; mode?: OpenMode }
+        return open(i.key as string, i.mode ?? 'tab')
+      }),
       orca.panels.handle('artifacts.thumb', (input) => thumb((input as { key: string } | undefined)?.key as string)),
       orca.panels.handle('artifacts.thumbStore', (input) => {
         const i = input as { key: string; rev: string; dataUrl: string } | undefined

@@ -104,5 +104,7 @@ export type ListResponse = {
 
 export type OpenTarget = 'orca'
 export type OpenResult = { ok: boolean; reason?: string }
+/** How `artifacts.open` shows the item: a new tab, or a split pane to the right of the current one. */
+export type OpenMode = 'tab' | 'beside'
 
 export const MAX_VERSIONS = 50

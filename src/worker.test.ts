@@ -205,6 +205,17 @@ test('open focuses the created tab; a failed focus still counts as opened', asyn
   await bad.worker.deactivate()
 })
 
+test('open beside splits right; an unknown mode is rejected before the CLI', async () => {
+  const s = await setup({ runCli: async (args) => (args[1] === 'create' ? { browserPageId: 'page-5' } : { switched: 1 }) })
+  assert.deepEqual(await s.worker.request('artifacts.open', { key: 'visual:c/x.html', mode: 'beside' }), { ok: true })
+  assert.deepEqual(s.cliCalls[0].args.slice(-2), ['--split', 'right'])
+  assert.equal(s.cliCalls[1].args[1], 'switch')
+  const before = s.cliCalls.length
+  await assert.rejects(s.worker.request('artifacts.open', { key: 'visual:c/x.html', mode: 'float' } as never), /mode/)
+  assert.equal(s.cliCalls.length, before)
+  await s.worker.deactivate()
+})
+
 test('open passes CLI error messages through as reasons', async () => {
   const hint = 'Orca CLI not found. Set its path in the plugin settings ("Orca CLI path").'
   const missing = await setup({ runCli: async () => { throw new CliError('cli_not_found', hint) } })

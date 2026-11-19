@@ -307,9 +307,11 @@
     else copyText(it.filePath || it.url, 'path')
   }
 
-  function open(key) {
+  /** mode: 'beside' (default: a split pane to the right of the current one) or 'tab' (a new tab). */
+  function open(key, mode) {
     if (!hasPlugin()) return
-    api.plugin.request('artifacts.open', { key: key }).then(function (r) {
+    var input = { key: key, mode: mode === 'tab' ? 'tab' : 'beside' }
+    api.plugin.request('artifacts.open', input).then(function (r) {
       if (!r || !r.ok) toast((r && r.reason) || 'Could not open that item')
     }).catch(function (err) { toast('Could not open that item: ' + errMsg(err, 'unknown error')) })
   }
@@ -388,6 +390,11 @@
       openMenu(key, anchor)
       return true
     }
+    if (e.key === 'Enter' && e.altKey && !e.shiftKey) {
+      e.preventDefault()
+      open(key, 'tab')
+      return true
+    }
     if (e.key === 'Enter' && e.shiftKey) {
       var it = itemByKey(key)
       if (canExternal(it)) {
@@ -425,7 +432,10 @@
     var mh = el('div', 'av-menu-head', head)
     mh.title = it.kind === 'claude' ? it.url : (it.filePath || '')
     m.appendChild(mh)
-    var defs = [{ icon: 'browser', label: 'Open in Orca browser', kbd: '\u21b5', run: function () { open(key) } }]
+    var defs = [
+      { icon: 'split', label: 'Open beside', kbd: '\u21b5', run: function () { open(key, 'beside') } },
+      { icon: 'browser', label: 'Open in new tab', kbd: 'Alt \u21b5', run: function () { open(key, 'tab') } }
+    ]
     if (canExternal(it)) defs.push({ icon: 'external', label: 'Open in external browser', kbd: 'Shift \u21b5', run: function () { openExternal(key) } })
     defs.push({ icon: 'copy', label: it.kind === 'claude' ? 'Copy link' : 'Copy file path', kbd: 'Ctrl C', run: function () { copy(key) } })
     defs.push('sep')

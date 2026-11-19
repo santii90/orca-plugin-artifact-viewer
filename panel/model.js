@@ -434,6 +434,7 @@
     sessions: '<path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/>',
     chevron: '<path d="m6 9 6 6 6-6"/>',
     browser: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>',
+    split: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>',
     branch: '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',

@@ -64,14 +64,18 @@ export function resolveCli(override: string | undefined, e: CliFinderEnv = defau
 const SAFE_URL = /^(https:\/\/claude\.ai\/|file:\/\/\/)/
 
 /** Args for `orca tab create`; throws CliError('invalid_args') on a URL or path we will not pass. */
-export function tabCreateArgs(url: string, worktreePath: string): string[] {
+export function tabCreateArgs(url: string, worktreePath: string, split?: 'right' | 'left' | 'down' | 'up'): string[] {
   if (typeof url !== 'string' || !SAFE_URL.test(url) || /[\s\u0000-\u001f]/.test(url)) {
     throw new CliError('invalid_args', 'Refusing to open a URL that is not https://claude.ai/... or file:///...')
   }
   if (typeof worktreePath !== 'string' || !(path.win32.isAbsolute(worktreePath) || path.posix.isAbsolute(worktreePath))) {
     throw new CliError('invalid_args', 'Worktree path must be absolute')
   }
-  return ['tab', 'create', '--url', url, '--worktree', `path:${worktreePath}`]
+  if (split !== undefined && !['right', 'left', 'down', 'up'].includes(split)) {
+    throw new CliError('invalid_args', 'Invalid split direction')
+  }
+  const args = ['tab', 'create', '--url', url, '--worktree', `path:${worktreePath}`]
+  return split ? [...args, '--split', split] : args
 }
 
 /** Args for `orca tab switch --focus`: brings a tab we just created to the front. */

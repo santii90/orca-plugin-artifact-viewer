@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "artifact-viewer",
   "name": "Artifacts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lists the claude.ai Artifacts and Orca chat visuals Claude made in this repo's worktrees, in the right sidebar, and opens them in Orca's browser with one click.",
   "author": {
     "name": "santii90",

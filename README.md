@@ -56,9 +56,11 @@ node scripts/release-check.mjs            # validate, tests, typecheck, manifest
 
 ### Releasing
 
-1. Bump `version` in `orca-plugin.json` and commit.
-2. `node scripts/release-check.mjs`
-3. `git tag v<version> && git push origin v<version>`; the community directory lists the new tag within about an hour.
+1. Bump `version` in `orca-plugin.json` on a branch, open a PR and squash-merge it.
+2. On an up-to-date `main`: `node scripts/release-check.mjs`
+3. `git tag -a v<version> -m v<version> && git push origin v<version>`; the community directory lists the new tag within about an hour.
+4. Publish the release notes (in English: what changed for users, plus the install command):
+   `gh release create v<version> --title v<version> --notes-file <notes.md> --verify-tag --latest`
 
 Versions are immutable: never move or reuse a tag. Adding capabilities, panels, events, commands or hooks makes Orca ask users to approve the update again.
 
